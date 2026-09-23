@@ -149,15 +149,18 @@ class DeliveryService:
     def _on_success(self, op_id: str, lead_id: str, *, replayed: bool) -> None:
         lead = self.repo.get_lead(lead_id)
         assert lead is not None
-        # stage human_approved -> crm_synced (guard), then outbox -> outboxed
-        if lead["stage"] == LeadStage.HUMAN_APPROVED.value:
-            assert_transition(lead["stage"], LeadStage.CRM_SYNCED.value)
-            self.repo.set_stage(lead_id, LeadStage.CRM_SYNCED.value)
-        elif lead["stage"] == LeadStage.DLQ.value:
-            assert_transition(lead["stage"], LeadStage.CRM_SYNCED.value)
-            self.repo.set_stage(lead_id, LeadStage.CRM_SYNCED.value)
-        # outbox write is itself guarded + idempotent (no dup even if replayed)
+        # Defensive: a reprocess normally resets dlq->human_approved first; if
+        # we ever land here still in dlq, restore the approved stage.
+        if lead["stage"] == LeadStage.DLQ.value:
+            self.repo.set_stage(lead_id, LeadStage.HUMAN_APPROVED.value)
+            lead = self.repo.get_lead(lead_id)
+        # Outbox is guarded by the human-approval gate, so enqueue it while the
+        # lead is still human_approved (idempotent: no duplicate on replay).
         self.outbox.write(self.repo, lead_id)
+        # Now advance the stage machine: human_approved -> crm_synced -> outboxed
+        if lead and lead["stage"] == LeadStage.HUMAN_APPROVED.value:
+            assert_transition(lead["stage"], LeadStage.CRM_SYNCED.value)
+            self.repo.set_stage(lead_id, LeadStage.CRM_SYNCED.value)
         lead = self.repo.get_lead(lead_id)
         if lead and lead["stage"] == LeadStage.CRM_SYNCED.value:
             assert_transition(lead["stage"], LeadStage.OUTBOXED.value)

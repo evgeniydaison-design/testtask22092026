@@ -1,0 +1,146 @@
+[
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-dup-0",
+    "record": {
+      "email": "ava.stone.alpha0@example.com",
+      "phone": "+155500000",
+      "name": "Ava Stone",
+      "company": "Northwind Inc",
+      "country": "US",
+      "intent": "Interested in a demo for our team",
+      "notes": "resubmitted via webhook"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-dup-1",
+    "record": {
+      "email": "ben.reed.alpha1@example.com",
+      "phone": "+155500001",
+      "name": "Ben Reed",
+      "company": "Acme Inc",
+      "country": "GB",
+      "intent": "Please send pricing and a quote",
+      "notes": "resubmitted via webhook"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-dup-2",
+    "record": {
+      "email": "cara.cole.alpha2@example.com",
+      "phone": "+155500002",
+      "name": "Cara Cole",
+      "company": "Globex Inc",
+      "country": "DE",
+      "intent": "Want to buy the enterprise plan",
+      "notes": "resubmitted via webhook"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-dup-3",
+    "record": {
+      "email": "dan.vance.alpha3@example.com",
+      "phone": "+155500003",
+      "name": "Dan Vance",
+      "company": "Initech Inc",
+      "country": "FR",
+      "intent": "Looking for a trial of the platform",
+      "notes": "resubmitted via webhook"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-dup-4",
+    "record": {
+      "email": "eve.pike.alpha4@example.com",
+      "phone": "+155500004",
+      "name": "Eve Pike",
+      "company": "Umbra Inc",
+      "country": "NL",
+      "intent": "Need more info about partnership options",
+      "notes": "resubmitted via webhook"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-new-200",
+    "record": {
+      "email": "iris.stone.alpha200@example.com",
+      "phone": "+155500200",
+      "name": "Iris Stone",
+      "company": "Northwind Inc",
+      "country": "US",
+      "budget_band": "high",
+      "intent": "Interested in a demo for our team"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-new-201",
+    "record": {
+      "email": "jack.reed.alpha201@example.com",
+      "phone": "+155500201",
+      "name": "Jack Reed",
+      "company": "Acme Inc",
+      "country": "GB",
+      "budget_band": "medium",
+      "intent": "Please send pricing and a quote"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-new-202",
+    "record": {
+      "email": "kira.cole.alpha202@example.com",
+      "phone": "+155500202",
+      "name": "Kira Cole",
+      "company": "Globex Inc",
+      "country": "DE",
+      "budget_band": "high",
+      "intent": "Want to buy the enterprise plan"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-new-203",
+    "record": {
+      "email": "leo.vance.alpha203@example.com",
+      "phone": "+155500203",
+      "name": "Leo Vance",
+      "company": "Initech Inc",
+      "country": "FR",
+      "budget_band": "medium",
+      "intent": "Looking for a trial of the platform"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-new-204",
+    "record": {
+      "email": "mona.pike.alpha204@example.com",
+      "phone": "+155500204",
+      "name": "Mona Pike",
+      "company": "Umbra Inc",
+      "country": "NL",
+      "budget_band": "high",
+      "intent": "Need more info about partnership options"
+    }
+  },
+  {
+    "tenant_id": "tenant_alpha",
+    "idempotency_key": "alpha-wh-optout-1",
+    "record": {
+      "email": "ava.stone.alpha800@example.com",
+      "phone": "+155500800",
+      "name": "Ava Stone",
+      "company": "Northwind Inc",
+      "country": "US",
+      "budget_band": "high",
+      "intent": "Please STOP contacting me and unsubscribe from all emails",
+      "opt_out": "true"
+    }
+  }
+]

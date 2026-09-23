@@ -57,10 +57,12 @@ def build_draft(lead: dict) -> Draft:
         "company": company or "your team",
         "country": lead.get("country") or "",
         "intent_safe": _safe_intent(lead),
+        "company_suffix": company_suffix,
     }
-    body = TEMPLATE.format(**{k: v for k, v in fields.items() if k != "company_suffix"})
-    # manual suffix injection (kept explicit + safe)
-    body = body.replace("{company_suffix}", company_suffix)
+    # Explicit replace (not str.format) so evidence text with braces is inert.
+    body = TEMPLATE
+    for token, value in fields.items():
+        body = body.replace("{" + token + "}", value)
     subject = f"Following up on your interest{(' - ' + company) if company else ''}"
     return Draft(subject, body, evidence_ids(lead), safe=True)
 
