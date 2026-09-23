@@ -68,14 +68,11 @@ def _now() -> str:
 
 
 class MockCRM:
-    def __init__(self, db_path: Path, *, error_profile: str = "none", flaky_keys: set[str] | None = None) -> None:
+    def __init__(self, db_path: Path, *, error_profile: str = "none") -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.error_profile = error_profile
-        # keys that fail exactly once (then succeed) - for flaky demos
-        self._flaky_remaining: dict[str, int] = {}
-        for k in (flaky_keys or set()):
-            self._flaky_remaining[k] = 1
+        # per-key call counter drives the deterministic flaky profiles
         self._call_count: dict[str, int] = {}
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.row_factory = sqlite3.Row

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from lead_engine.pipeline import normalize as nz
 from lead_engine.pipeline.draft import build_draft, validate_template
 from lead_engine.pipeline.qualify_ai import (

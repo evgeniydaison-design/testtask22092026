@@ -119,8 +119,6 @@ CREATE INDEX IF NOT EXISTS idx_sources_lead ON lead_sources (tenant_id, lead_id)
 CREATE INDEX IF NOT EXISTS idx_ops_state ON delivery_ops (tenant_id, state);
 """
 
-_NOW = "CURRENT_TIMESTAMP"
-
 
 def _utcnow() -> str:
     import datetime as _dt
