@@ -22,7 +22,9 @@ from pathlib import Path
 
 from .metrics import funnel as funnel_mod
 from .approval import human_gate
-from .config import get_tenant
+from .audit import explain_lead
+from .config import get_tenant, load_settings
+from .reporting import render_dashboard
 from .service import build_service
 from .sources.readers import read_source
 
@@ -120,6 +122,46 @@ def cmd_metrics(args) -> int:
         svc.close()
 
 
+def cmd_audit(args) -> int:
+    """Print the full explain-trail for one lead (or --latest for the most
+    recently updated lead in this tenant)."""
+    if not args.lead and not args.latest:
+        print("error: pass --lead <id> or --latest", file=sys.stderr)
+        return 2
+    svc = build_service(args.tenant)
+    try:
+        if args.latest:
+            leads = svc.repo.list_leads()
+            if not leads:
+                print("no leads in this tenant", file=sys.stderr)
+                return 1
+            lead_id = max(leads, key=lambda l: l.get("updated_at") or "")["id"]
+        else:
+            lead_id = args.lead
+        _print(explain_lead(svc.repo, svc.crm, svc.outbox, lead_id))
+        return 0
+    finally:
+        svc.close()
+
+
+def cmd_report(args) -> int:
+    """Generate a self-contained HTML funnel dashboard across all known tenants."""
+    settings = load_settings()
+    metrics_list = []
+    for tenant in settings.tenants:
+        svc = build_service(tenant)
+        try:
+            metrics_list.append(funnel_mod.compute(svc.repo, svc.crm, svc.outbox))
+        finally:
+            svc.close()
+    html = render_dashboard(metrics_list)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(html, encoding="utf-8")
+    _print({"wrote": str(out.resolve()), "tenants": [m.tenant_id for m in metrics_list]})
+    return 0
+
+
 def cmd_demo(args) -> int:
     """Scripted end-to-end demo on synthetic fixtures for one tenant."""
     tenant = args.tenant
@@ -186,6 +228,21 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("deliver"); common(sp); sp.set_defaults(func=cmd_deliver)
     sp = sub.add_parser("reprocess"); common(sp); sp.set_defaults(func=cmd_reprocess)
     sp = sub.add_parser("metrics"); common(sp); sp.set_defaults(func=cmd_metrics)
+
+    sp = sub.add_parser("audit", help="full explain-trail for one lead")
+    common(sp); sp.add_argument("--lead", required=False, default=None)
+    sp.add_argument("--latest", action="store_true",
+                   help="pick the most-recently-updated lead instead of --lead")
+    sp.set_defaults(func=cmd_audit)
+    # 'explain' is a friendlier alias for the same thing
+    sp = sub.add_parser("explain", help="alias of audit")
+    common(sp); sp.add_argument("--lead", required=False, default=None)
+    sp.add_argument("--latest", action="store_true")
+    sp.set_defaults(func=cmd_audit)
+
+    sp = sub.add_parser("report", help="write a cross-tenant HTML funnel dashboard")
+    sp.add_argument("--out", default="report.html")
+    sp.set_defaults(func=cmd_report)
 
     sp = sub.add_parser("demo"); common(sp); sp.set_defaults(func=cmd_demo)
     return p

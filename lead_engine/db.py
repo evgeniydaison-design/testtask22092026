@@ -142,6 +142,11 @@ class LeadRepository:
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        # WAL + NORMAL keeps crash-consistency but makes per-row commits ~100x
+        # cheaper than the default rollback journal - critical for the load path
+        # (each ingest/qualify/decision does several commits).
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
 
@@ -459,3 +464,27 @@ class LeadRepository:
         else:
             rows = self._all("SELECT COUNT(*) AS c FROM events WHERE tenant_id = ?", (self.tenant_id,))
         return rows[0]["c"]
+
+    def list_events_for_lead(self, lead_id: str) -> list[dict]:
+        """Ordered stage-transition trail for one lead (audit view)."""
+        return self._all(
+            "SELECT stage, detail, created_at FROM events "
+            "WHERE tenant_id = ? AND lead_id = ? ORDER BY created_at ASC, id ASC",
+            (self.tenant_id, lead_id),
+        )
+
+    def list_events_all(self) -> list[dict]:
+        """All events for this tenant (used by time-in-stage metrics)."""
+        return self._all(
+            "SELECT lead_id, stage, detail, created_at FROM events "
+            "WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+            (self.tenant_id,),
+        )
+
+    def list_decisions_all(self) -> list[dict]:
+        """All decisions for this tenant (used by time-to-decision metric)."""
+        return self._all(
+            "SELECT lead_id, action, actor, note, created_at FROM decisions "
+            "WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+            (self.tenant_id,),
+        )

@@ -8,12 +8,18 @@ human, how many delivered, and how the resilient delivery layer behaved
 
 from __future__ import annotations
 
+import datetime as _dt
 from dataclasses import asdict, dataclass, field
 
 from ..db import LeadRepository
 from ..delivery.crm_mock import MockCRM
 from ..delivery.outbox import MockOutbox
 from ..models import DeliveryState, LeadStage
+
+
+def _parse_ts(s: str) -> _dt.datetime:
+    # SQLite stores our _utcnow() as ISO-8601 with a trailing 'Z'.
+    return _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 @dataclass
@@ -29,6 +35,10 @@ class FunnelMetrics:
     delivery: dict[str, int] = field(default_factory=dict)
     crm_status_histogram: dict[str, int] = field(default_factory=dict)
     outbox_entries: int = 0
+    # SLA / operator-queue timings (seconds). Deterministic demo runs at sub-second
+    # speed so these will be ~0; in a real deployment they measure operator latency.
+    avg_seconds_ingest_to_decision: float | None = None
+    avg_seconds_in_manual_review: float | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -60,4 +70,40 @@ def compute(repo: LeadRepository, crm: MockCRM, outbox: MockOutbox) -> FunnelMet
 
     m.crm_status_histogram = {str(k): v for k, v in sorted(crm.status_histogram().items())}
     m.outbox_entries = outbox.count()
+
+    # -- SLA timings ---------------------------------------------------------
+    # ingest -> first human decision, per lead that has a decision.
+    lead_created = {l["id"]: _parse_ts(l["created_at"]) for l in leads}
+    first_decision_at: dict[str, _dt.datetime] = {}
+    for d in repo.list_decisions_all():
+        t = _parse_ts(d["created_at"])
+        prev = first_decision_at.get(d["lead_id"])
+        if prev is None or t < prev:
+            first_decision_at[d["lead_id"]] = t
+    deltas = [
+        (first_decision_at[lid] - lead_created[lid]).total_seconds()
+        for lid in first_decision_at if lid in lead_created
+    ]
+    if deltas:
+        m.avg_seconds_ingest_to_decision = round(sum(deltas) / len(deltas), 3)
+
+    # manual_review entered -> manual_review exited (any next stage), per lead.
+    entered_mr: dict[str, _dt.datetime] = {}
+    exited_mr: dict[str, _dt.datetime] = {}
+    for ev in repo.list_events_all():
+        lid = ev["lead_id"]
+        if lid is None:
+            continue
+        t = _parse_ts(ev["created_at"])
+        if ev["stage"] == LeadStage.MANUAL_REVIEW.value:
+            entered_mr[lid] = t  # last write wins (idempotent re-entry, still MR)
+        elif lid in entered_mr and lid not in exited_mr:
+            exited_mr[lid] = t
+    mr_deltas = [
+        (exited_mr[lid] - entered_mr[lid]).total_seconds()
+        for lid in exited_mr if lid in entered_mr
+    ]
+    if mr_deltas:
+        m.avg_seconds_in_manual_review = round(sum(mr_deltas) / len(mr_deltas), 3)
+
     return m

@@ -23,7 +23,9 @@ OPT_OUT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Prompt-injection patterns that must never be executed, only flagged.
+# Prompt-injection and hostile-text patterns that must never be executed, only
+# flagged. Includes classic LLM jailbreak markers plus common XSS/SQLi payloads
+# so that even a mistakenly-approved lead cannot smuggle them downstream.
 INJECTION_RE = re.compile(
     r"(ignore (all |any )?(previous|prior|above) instructions"
     r"|disregard (the )?(system|previous|above) (prompt|instructions)"
@@ -31,9 +33,21 @@ INJECTION_RE = re.compile(
     r"|system prompt"
     r"|new instructions:"
     r"|reveal (your|the) (prompt|system)"
-    r"|override (the )?(rules|safety))",
+    r"|override (the )?(rules|safety)"
+    # XSS / markup smuggling (never rendered, but quarantine anyway)
+    r"|<\s*script"
+    r"|javascript\s*:"
+    r"|on(error|load|click)\s*="
+    # classic SQL-injection markers
+    r"|drop\s+table"
+    r"|union\s+select"
+    r"|;\s*--)",
     re.IGNORECASE,
 )
+
+# Zero-width and bidi control characters used to break up keywords so a naive
+# regex misses them (e.g. "ig\u200bnore previous instructions").
+_INVISIBLE_RE = re.compile(r"[\u200b\u200c\u200d\u2060\ufeff\u202a-\u202e]")
 
 # Free-text fields we scan for opt-out / injection signals.
 _TEXT_FIELDS = ("intent", "name", "company", "notes", "message", "raw_message")
@@ -114,7 +128,15 @@ def _as_list(value) -> list:
 
 
 def _text_blob(raw: dict) -> str:
-    return " ".join(str(raw.get(f, "")) for f in _TEXT_FIELDS)
+    # NFKD unifies unicode-obfuscated lookalikes (math-bold, fullwidth, etc.)
+    # back to ASCII before the safety regexes run. Zero-width / bidi controls
+    # are stripped first because they are used to break keywords apart.
+    import unicodedata
+    parts: list[str] = []
+    for f in _TEXT_FIELDS:
+        s = unicodedata.normalize("NFKD", str(raw.get(f, "")))
+        parts.append(_INVISIBLE_RE.sub("", s))
+    return " ".join(parts)
 
 
 def normalize(raw: dict) -> dict:

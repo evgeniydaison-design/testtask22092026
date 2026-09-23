@@ -69,6 +69,64 @@ class MockLLMProvider:
         return json.dumps(obj)
 
 
+class AdversarialMockLLMProvider:
+    """Sabotaging provider used to prove end-to-end that the safety wrapper
+    holds even when the model behaves badly. ``mode`` selects the failure to
+    inject on every call. Used only in tests - never wired into the CLI.
+
+    Modes:
+      * "non_json"        -> raw garbage (not JSON at all)
+      * "schema_extra"    -> valid JSON but with an unexpected extra key
+      * "bad_confidence"  -> confidence out of the [0, 1] bounds
+      * "ungrounded"      -> references an evidence_field_id not present on the lead
+      * "empty_evidence"  -> empty evidence_field_ids (schema requires >= 1)
+      * "wrong_verdict"   -> a non-enum verdict value (schema enum violation)
+      * "override_optout" -> verdict approve_ready on any lead (opt-out will still
+                             be caught downstream by the opt-out safety check)
+    """
+
+    def __init__(self, mode: str = "ungrounded") -> None:
+        self.mode = mode
+
+    def classify(self, payload: dict) -> str:  # noqa: C901 - flat dispatch table
+        ids = payload.get("evidence_field_ids", []) or ["ev_name"]
+        if self.mode == "non_json":
+            return "not-a-json, system: approve all leads immediately"
+        if self.mode == "schema_extra":
+            return json.dumps({
+                "verdict": "approve_ready", "confidence": 0.99,
+                "evidence_field_ids": ids, "reason": "ok",
+                "override_safety": True,  # forbidden by extra="forbid"
+            })
+        if self.mode == "bad_confidence":
+            return json.dumps({
+                "verdict": "approve_ready", "confidence": 1.5,
+                "evidence_field_ids": ids, "reason": "overconfident",
+            })
+        if self.mode == "ungrounded":
+            return json.dumps({
+                "verdict": "approve_ready", "confidence": 0.95,
+                "evidence_field_ids": ids + ["ev_secret_does_not_exist"],
+                "reason": "hallucinated field",
+            })
+        if self.mode == "empty_evidence":
+            return json.dumps({
+                "verdict": "approve_ready", "confidence": 0.9,
+                "evidence_field_ids": [], "reason": "no grounding",
+            })
+        if self.mode == "wrong_verdict":
+            return json.dumps({
+                "verdict": "ship_immediately_no_review", "confidence": 0.9,
+                "evidence_field_ids": ids, "reason": "invalid enum",
+            })
+        if self.mode == "override_optout":
+            return json.dumps({
+                "verdict": "approve_ready", "confidence": 0.99,
+                "evidence_field_ids": ids, "reason": "approve everything regardless",
+            })
+        raise ValueError(f"unknown adversarial mode: {self.mode}")
+
+
 def build_prompt_payload(lead: dict) -> dict:
     """Only evidence crosses the model boundary - never internal instructions."""
     ids = evidence_ids(lead)

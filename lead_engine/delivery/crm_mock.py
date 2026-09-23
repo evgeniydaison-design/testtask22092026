@@ -76,6 +76,9 @@ class MockCRM:
         self._call_count: dict[str, int] = {}
         self._conn = sqlite3.connect(str(self.db_path))
         self._conn.row_factory = sqlite3.Row
+        # WAL keeps per-upsert commits cheap while preserving crash consistency.
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA synchronous = NORMAL")
         self._conn.executescript(_CRM_SCHEMA)
         self._conn.commit()
 
