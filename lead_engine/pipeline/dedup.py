@@ -9,6 +9,7 @@ and the lead is marked ``duplicate_of``. All original sources are preserved.
 from __future__ import annotations
 
 from ..db import LeadRepository
+from ..models import LeadStage
 
 
 class DedupResult:
@@ -40,11 +41,13 @@ def dedupe_and_store(repo: LeadRepository, normalized: dict, source_row_id: str 
         # safety flags are sticky: once set, they stay set
         for flag in ("opt_out", "injection_flag", "conflict_flag", "needs_review"):
             merged[flag] = int(merged.get(flag, 0)) or int(persist.get(flag, 0))
-        merged["duplicate_of"] = merged.get("duplicate_of") or lead_id
+        # mark that this lead absorbed a duplicate source (points at itself)
+        merged["duplicate_of"] = lead_id
         merged["id"] = lead_id
         repo.upsert_lead(merged)
         return DedupResult(repo.get_lead(lead_id), True, None)
 
+    persist["stage"] = LeadStage.RECEIVED.value
     lead = repo.upsert_lead(persist)
     if source_row_id:
         repo.link_source_to_lead(source_row_id, lead["id"])
