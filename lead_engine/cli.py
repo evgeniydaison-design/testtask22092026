@@ -125,16 +125,19 @@ def cmd_demo(args) -> int:
     tenant = args.tenant
     get_tenant(tenant)
     root = Path(__file__).resolve().parents[1]
-    fixtures = {
-        "tenant_alpha": [("fixtures/leads_alpha.csv", "csv"), ("fixtures/leads_alpha.json", "json")],
-        "tenant_beta": [("fixtures/leads_beta.csv", "csv"), ("fixtures/leads_beta.json", "json")],
-    }[tenant]
+    label = tenant.replace("tenant_", "")
     svc = build_service(tenant)
     try:
-        for rel, fmt in fixtures:
+        # CSV + JSON record files
+        for rel, fmt in [(f"fixtures/leads_{label}.csv", "csv"), (f"fixtures/leads_{label}.json", "json")]:
             path = root / rel
             if path.exists():
                 svc.pipeline.ingest_many(read_source(path, fmt), fmt)
+        # webhook envelopes (may carry cross-source duplicates of CSV leads)
+        wh = root / f"fixtures/webhook_{label}.json"
+        if wh.exists():
+            for env in read_source(wh, "json"):
+                svc.pipeline.ingest_raw(env["record"], "webhook", idempotency_hint=env.get("idempotency_key"))
         q = svc.pipeline.run_qualification()
         # auto-approve only clearly-safe approved_ready leads to demo delivery,
         # leave manual_review/injection/conflict for a human.
