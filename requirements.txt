@@ -1,0 +1,9 @@
+# AthenAI Lead Engine - runtime dependencies
+# Core (strict JSON schema validation + web layer)
+pydantic>=2.7
+fastapi>=0.110
+uvicorn[standard]>=0.27
+httpx>=0.27
+
+# Testing
+pytest>=8.0
