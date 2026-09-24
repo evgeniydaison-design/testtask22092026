@@ -84,18 +84,19 @@ def _page(title: str, body: str) -> str:
     return (
         "<!doctype html><html><head><meta charset='utf-8'>"
         f"<title>{e(title)}</title><style>{_CSS}</style></head><body>"
-        "<h1>AthenAI Lead Engine &mdash; operator UI</h1>"
-        "<div class='sub'>Local, offline, synthetic-only. No auth/TLS &mdash; "
-        "bind 127.0.0.1 only. This UI reuses the same approval gate as the CLI.</div>"
-        f"<nav><a href='/ui'>&#9662; tenants</a></nav><hr>{body}</body></html>"
+        "<h1>AthenAI Lead Engine &mdash; интерфейс оператора</h1>"
+        "<div class='sub'>Локально, офлайн, только синтетические данные. Без "
+        "аутентификации/TLS &mdash; привязка только к 127.0.0.1. Этот UI переиспользует "
+        "тот же шлюз одобрения, что и CLI.</div>"
+        f"<nav><a href='/ui'>&#9662; тенанты</a></nav><hr>{body}</body></html>"
     )
 
 
 def _open_tenant_nav(tenant_id: str) -> str:
     return (
-        f"<nav><a href='/ui'>&#9662; tenants</a>"
-        f"<a href='/ui/{e(tenant_id)}/queue'>queue</a>"
-        f"<a href='/ui/{e(tenant_id)}/metrics'>metrics</a></nav>"
+        f"<nav><a href='/ui'>&#9662; тенанты</a>"
+        f"<a href='/ui/{e(tenant_id)}/queue'>очередь</a>"
+        f"<a href='/ui/{e(tenant_id)}/metrics'>метрики</a></nav>"
     )
 
 
@@ -103,13 +104,38 @@ def _require_tenant(tenant_id: str) -> None:
     try:
         get_tenant(tenant_id)
     except KeyError:
-        raise HTTPException(status_code=404, detail="unknown tenant")
+        raise HTTPException(status_code=404, detail="неизвестный тенант")
 
 
 def _flag_badge(label: str, on: object) -> str:
     if int(on or 0):
         return f"<span class='badge red'>{e(label)}</span>"
     return ""
+
+
+def _translate_gate_error(msg: str) -> str:
+    """Human-readable Russian label for a known gate error, with the original
+    English kept in parentheses so tests and the audit trail still match it."""
+    if "actor is required" in msg:
+        return (
+            "\u041d\u0443\u0436\u0435\u043d \u043d\u0435\u043f\u0443\u0441\u0442\u043e\u0439 "
+            "actor \u2014 \u0440\u0435\u0448\u0435\u043d\u0438\u0435 \u0434\u043e\u043b\u0436\u043d\u043e "
+            "\u0431\u044b\u0442\u044c \u0430\u0443\u0434\u0438\u0440\u0443\u0435\u043c\u044b\u043c ("
+            "actor is required)"
+        )
+    if "not found" in msg:
+        return "\u041b\u0438\u0434 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d \u0432 \u044d\u0442\u043e\u043c \u0442\u0435\u043d\u0430\u043d\u0442\u0435 (not found)"
+    if "already approved" in msg:
+        return "\u041b\u0438\u0434 \u0443\u0436\u0435 \u043e\u0434\u043e\u0431\u0440\u0435\u043d (already approved)"
+    if "opt-out" in msg:
+        return "\u041b\u0438\u0434\u044b \u0441 \u043e\u0442\u043a\u0430\u0437\u043e\u043c (opt-out) \u043d\u0435\u043b\u044c\u0437\u044f \u043e\u0434\u043e\u0431\u0440\u044f\u0442\u044c (opt-out)"
+    if "cannot approve" in msg or "cannot reject" in msg:
+        return (
+            "\u041d\u0435\u043b\u044c\u0437\u044f \u043f\u0440\u0438\u043d\u044f\u0442\u044c \u0440\u0435\u0448\u0435\u043d\u0438\u0435 "
+            "\u0434\u043b\u044f \u043b\u0438\u0434\u0430 \u0432 \u0442\u0435\u043a\u0443\u0449\u0435\u0439 \u0441\u0442\u0430\u0434\u0438\u0438 "
+            f"({msg})"
+        )
+    return msg
 
 
 def _stage_badge(stage: str) -> str:
@@ -129,18 +155,18 @@ def _stage_badge(stage: str) -> str:
 def ui_index() -> HTMLResponse:
     rows = "".join(
         "<li><a href='/ui/{t}/queue'>{t}</a> &mdash; {name} "
-        "<span class='note'>(owner: {owner})</span></li>".format(
+        "<span class='note'>(владелец: {owner})</span></li>".format(
             t=e(tid), name=e(t.display_name), owner=e(t.owner)
         )
         for tid, t in TENANTS.items()
     )
     body = (
-        "<h2>Tenants</h2>"
-        "<p class='sub'>Pick a tenant to open its isolated approval queue. "
-        "Every page is scoped to exactly one tenant.</p>"
+        "<h2>Тенанты</h2>"
+        "<p class='sub'>Выберите тенант, чтобы открыть его изолированную очередь "
+        "одобрения. Каждая страница отнесена ровно к одному тенанту.</p>"
         f"<ul>{rows}</ul>"
     )
-    return HTMLResponse(_page("AthenAI operator UI", body))
+    return HTMLResponse(_page("AthenAI \u2014 интерфейс оператора", body))
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +183,9 @@ def ui_queue(tenant_id: str) -> HTMLResponse:
             lead = svc.repo.get_lead(item["lead_id"]) or {}
             flags = item.get("flags", {})
             flag_html = (
-                _flag_badge("opt_out", flags.get("opt_out"))
-                + _flag_badge("injection", flags.get("injection"))
-                + _flag_badge("conflict", flags.get("conflict"))
+                _flag_badge("опт-аут", flags.get("opt_out"))
+                + _flag_badge("инъекция", flags.get("injection"))
+                + _flag_badge("конфликт", flags.get("conflict"))
             ) or "<span class='note'>&mdash;</span>"
             rows.append(
                 "<tr>"
@@ -171,26 +197,26 @@ def ui_queue(tenant_id: str) -> HTMLResponse:
                 f"<td>{e(item.get('combined_verdict'))}</td>"
                 f"<td>{flag_html}</td>"
                 f"<td>{e(lead.get('updated_at'))}</td>"
-                f"<td><a href='/ui/{e(tenant_id)}/lead/{e(item['lead_id'])}'>Open</a></td>"
+                f"<td><a href='/ui/{e(tenant_id)}/lead/{e(item['lead_id'])}'>Открыть</a></td>"
                 "</tr>"
             )
         table = (
             "<table><thead><tr>"
-            "<th>lead id</th><th>canonical key</th><th>rules verdict</th>"
-            "<th>AI verdict</th><th>confidence</th><th>combined</th>"
-            "<th>safety flags</th><th>updated_at</th><th></th>"
+            "<th>ид лида</th><th>канонический ключ</th><th>вердикт правил</th>"
+            "<th>вердикт ИИ</th><th>уверенность</th><th>итог</th>"
+            "<th>флаги безопасности</th><th>обновлён</th><th></th>"
             "</tr></thead><tbody>"
             + ("".join(rows) or
-               "<tr><td colspan='9' class='note'>No leads awaiting a decision.</td></tr>")
+               "<tr><td colspan='9' class='note'>Нет лидов, ожидающих решения.</td></tr>")
             + "</tbody></table>"
         )
         body = (
             f"{_open_tenant_nav(tenant_id)}"
-            f"<h2>{e(tenant_id)} &mdash; approval queue {_stage_badge('manual_review')} "
-            f"<span class='note'>awaiting a human decision</span></h2>"
+            f"<h2>{e(tenant_id)} &mdash; очередь на одобрение {_stage_badge('manual_review')} "
+            f"<span class='note'>ожидают решения человека</span></h2>"
             f"{table}"
         )
-        return HTMLResponse(_page(f"{tenant_id} queue", body))
+        return HTMLResponse(_page(f"{tenant_id} \u2014 очередь", body))
     finally:
         svc.close()
 
@@ -206,7 +232,7 @@ def ui_lead_detail(tenant_id: str, lead_id: str) -> HTMLResponse:
         try:
             view = explain_lead(svc.repo, svc.crm, svc.outbox, lead_id)
         except human_gate.ApprovalError:
-            raise HTTPException(status_code=404, detail="lead not found in tenant")
+            raise HTTPException(status_code=404, detail="лид не найден в тенанте")
 
         idn = view["identity"]
         nf = view["normalize_flags"]
@@ -218,136 +244,137 @@ def ui_lead_detail(tenant_id: str, lead_id: str) -> HTMLResponse:
             raw_json = json.dumps(s.get("raw"), ensure_ascii=False, indent=2, sort_keys=True)
             sources_html += (
                 "<div class='card'>"
-                f"<div class='kv'><b>source</b><span>{e(s.get('source_type'))}</span>"
-                f"<b>idempotency_key</b><span><code>{e(s.get('idempotency_key'))}</code></span>"
-                f"<b>received_at</b><span>{e(s.get('received_at'))}</span></div>"
+                f"<div class='kv'><b>источник</b><span>{e(s.get('source_type'))}</span>"
+                f"<b>ключ идемпотентности</b><span><code>{e(s.get('idempotency_key'))}</code></span>"
+                f"<b>получен</b><span>{e(s.get('received_at'))}</span></div>"
                 f"<pre class='raw'>{e(raw_json)}</pre></div>"
             )
         if not sources_html:
-            sources_html = "<p class='note'>No raw source records.</p>"
+            sources_html = "<p class='note'>Нет сырых записей источников.</p>"
 
         flags_html = (
-            _flag_badge("opt_out", nf.get("opt_out"))
-            + _flag_badge("injection", nf.get("injection"))
-            + _flag_badge("conflict", nf.get("conflict"))
-            + _flag_badge("needs_review", nf.get("needs_review"))
-        ) or "<span class='note'>none</span>"
+            _flag_badge("опт-аут", nf.get("opt_out"))
+            + _flag_badge("инъекция", nf.get("injection"))
+            + _flag_badge("конфликт", nf.get("conflict"))
+            + _flag_badge("нужна проверка", nf.get("needs_review"))
+        ) or "<span class='note'>нет</span>"
 
         safety_flags = ai.get("reason_or_safety_flags") or ""
         safety_html = (
-            f"<span class='badge red'>safety: {e(safety_flags)}</span>"
+            f"<span class='badge red'>безопасность: {e(safety_flags)}</span>"
             if ai.get("safety_flagged") else "<span class='note'>ok</span>"
         )
 
         draft = view.get("draft")
         if draft is None:
-            draft_html = "<p class='note'>No draft generated for this lead.</p>"
+            draft_html = "<p class='note'>Для этого лида черновик не сгенерирован.</p>"
         else:
             body_text = draft.get("body") or ""
             is_quarantined = body_text.startswith("[Quarantined draft]")
             cls = "draft quarantine" if is_quarantined else "draft"
             quarantine_note = (
-                "<div class='note' style='color:#7a2626'>&#9888; Quarantined: "
-                "this lead is flagged for safety review; no outreach text was "
-                "generated from untrusted input.</div>"
+                "<div class='note' style='color:#7a2626'>&#9888; Карантин: лид "
+                "помечен для проверки безопасности; текст сообщения не был "
+                "сгенерирован из недоверенного ввода.</div>"
                 if is_quarantined else ""
             )
             ev = ", ".join(draft.get("evidence_field_ids") or [])
             draft_html = (
-                "<p class='note'>Read-only. Generated only from evidence "
-                "(no manual editing in this UI).</p>"
-                f"<div class='kv'><b>status</b><span>{e(draft.get('status'))}</span>"
-                f"<b>subject</b><span>{e(draft.get('subject'))}</span>"
+                "<p class='note'>Только для чтения. Сгенерирован только из "
+                "доказательств (ручное редактирование в этом UI недоступно).</p>"
+                f"<div class='kv'><b>статус</b><span>{e(draft.get('status'))}</span>"
+                f"<b>тема</b><span>{e(draft.get('subject'))}</span>"
                 f"<b>evidence_field_ids</b><span>{e(ev) or '&mdash;'}</span></div>"
                 f"{quarantine_note}"
                 f"<div class='{cls}'>{e(body_text)}</div>"
             )
 
         decisions_html = "".join(
-            "<li><b>{a}</b> by <code>{actor}</code> &mdash; {note} "
+            "<li><b>{a}</b> &mdash; <code>{actor}</code> · {note} "
             "<span class='note'>({ts})</span></li>".format(
                 a=e(d.get("action")), actor=e(d.get("actor")),
                 note=e(d.get("note") or "&mdash;"), ts=e(d.get("created_at")),
             )
             for d in view["decisions"]
-        ) or "<li class='note'>No decisions yet.</li>"
+        ) or "<li class='note'>Решений пока нет.</li>"
 
         can_act = view["stage"] in ("manual_review", "approved_ready")
         if can_act:
             form_html = f"""
-            <h2>Record a decision</h2>
-            <p class='note'>The <b>actor</b> field is a plain identifier forwarded to the
-            same approval gate the CLI uses (audited, not authenticated). There is
-            intentionally no message field: only the stored draft can ever be sent.</p>
+            <h2>Принять решение</h2>
+            <p class='note'>Поле <b>actor</b> &mdash; это обычный идентификатор, который
+            передаётся в тот же шлюз одобрения, что и CLI (пишется в аудит,
+            аутентификации нет). Поля для произвольного текста сообщения
+            намеренно нет: отправить можно только сохранённый черновик.</p>
             <form class='inline' method='post'
                   action='/ui/{e(tenant_id)}/lead/{e(lead_id)}/approve'>
-              <input type='text' name='actor' placeholder='your actor-id (e.g. ops-alpha)' required>
-              <input type='text' name='note' placeholder='note (optional)'>
-              <button class='approve' type='submit'>Approve</button>
+              <input type='text' name='actor' placeholder='ваш actor-id (напр. ops-alpha)' required>
+              <input type='text' name='note' placeholder='примечание (необязательно)'>
+              <button class='approve' type='submit'>Одобрить</button>
             </form>
             <form class='inline' method='post'
                   action='/ui/{e(tenant_id)}/lead/{e(lead_id)}/reject'>
-              <input type='text' name='actor' placeholder='your actor-id' required>
-              <input type='text' name='note' placeholder='note (optional)'>
-              <button class='reject' type='submit'>Reject</button>
+              <input type='text' name='actor' placeholder='ваш actor-id' required>
+              <input type='text' name='note' placeholder='примечание (необязательно)'>
+              <button class='reject' type='submit'>Отклонить</button>
             </form>
             """
         else:
             form_html = (
-                f"<h2>Record a decision</h2><p class='note'>This lead is in stage "
-                f"{_stage_badge(view['stage'])} and no longer accepts an approve/reject "
-                f"decision from the queue.</p>"
+                f"<h2>Принять решение</h2><p class='note'>Этот лид находится в стадии "
+                f"{_stage_badge(view['stage'])} и больше не принимает одобрение/отклонение "
+                f"из очереди.</p>"
             )
 
         body = f"""
         {_open_tenant_nav(tenant_id)}
-        <h2>Lead <code>{e(lead_id)}</code> {_stage_badge(view['stage'])}</h2>
+        <h2>Лид <code>{e(lead_id)}</code> {_stage_badge(view['stage'])}</h2>
         <div class='card'><div class='kv'>
-          <b>tenant</b><span>{e(view['tenant_id'])}</span>
-          <b>canonical_key</b><span>{e(view['canonical_key'])}</span>
-          <b>stage</b><span>{e(view['stage'])}</span>
-          <b>combined_verdict</b><span>{e(view['combined_verdict'])}</span>
+          <b>тенант</b><span>{e(view['tenant_id'])}</span>
+          <b>канонический ключ</b><span>{e(view['canonical_key'])}</span>
+          <b>стадия</b><span>{e(view['stage'])}</span>
+          <b>итоговый вердикт</b><span>{e(view['combined_verdict'])}</span>
         </div></div>
 
-        <h2>Identity (normalized)</h2>
+        <h2>Контакт (нормализованный)</h2>
         <div class='card'><div class='kv'>
           <b>email</b><span>{e(idn.get('email'))}</span>
-          <b>phone</b><span>{e(idn.get('phone'))}</span>
-          <b>name</b><span>{e(idn.get('name'))}</span>
-          <b>company</b><span>{e(idn.get('company'))}</span>
-          <b>country</b><span>{e(idn.get('country'))}</span>
-          <b>budget_band</b><span>{e(idn.get('budget_band'))}</span>
-          <b>intent_level</b><span>{e(idn.get('intent_level'))}</span>
+          <b>телефон</b><span>{e(idn.get('phone'))}</span>
+          <b>имя</b><span>{e(idn.get('name'))}</span>
+          <b>компания</b><span>{e(idn.get('company'))}</span>
+          <b>страна</b><span>{e(idn.get('country'))}</span>
+          <b>бюджет</b><span>{e(idn.get('budget_band'))}</span>
+          <b>уровень намерения</b><span>{e(idn.get('intent_level'))}</span>
         </div></div>
 
-        <h2>Normalize flags</h2>
+        <h2>Флаги нормализации</h2>
         <div class='card'>{flags_html}</div>
 
-        <h2>Rules verdict</h2>
+        <h2>Вердикт правил</h2>
         <div class='card'><div class='kv'>
-          <b>verdict</b><span>{e(rules.get('verdict'))}</span>
-          <b>reason</b><span>{e(rules.get('reason'))}</span>
+          <b>вердикт</b><span>{e(rules.get('verdict'))}</span>
+          <b>причина</b><span>{e(rules.get('reason'))}</span>
         </div></div>
 
-        <h2>AI verdict</h2>
+        <h2>Вердикт ИИ</h2>
         <div class='card'><div class='kv'>
-          <b>verdict</b><span>{e(ai.get('verdict'))}</span>
-          <b>confidence</b><span>{e(ai.get('confidence'))}</span>
-          <b>safety flags</b><span>{safety_html}</span>
+          <b>вердикт</b><span>{e(ai.get('verdict'))}</span>
+          <b>уверенность</b><span>{e(ai.get('confidence'))}</span>
+          <b>флаги безопасности</b><span>{safety_html}</span>
         </div></div>
 
-        <h2>Draft (read-only)</h2>
+        <h2>Черновик (только для чтения)</h2>
         <div class='card'>{draft_html}</div>
 
-        <h2>Source records (raw)</h2>
+        <h2>Записи источников (сырые)</h2>
         {sources_html}
 
-        <h2>Decision history</h2>
+        <h2>История решений</h2>
         <ul>{decisions_html}</ul>
 
         {form_html}
         """
-        return HTMLResponse(_page(f"{tenant_id} lead {lead_id}", body))
+        return HTMLResponse(_page(f"{tenant_id} \u2014 лид {lead_id}", body))
     finally:
         svc.close()
 
@@ -366,9 +393,11 @@ def ui_metrics(tenant_id: str) -> HTMLResponse:
     dash = render_dashboard([metrics])
     nav = (
         "<div style='margin:0 0 16px'>"
-        f"<a href='/ui'>&#9662; tenants</a> &middot; "
-        f"<a href='/ui/{e(tenant_id)}/queue'>queue</a> &middot; "
-        f"<a href='/ui/{e(tenant_id)}/metrics'>metrics (this page)</a></div>"
+        f"<a href='/ui'>&#9662; тенанты</a> &middot; "
+        f"<a href='/ui/{e(tenant_id)}/queue'>очередь</a> &middot; "
+        f"<a href='/ui/{e(tenant_id)}/metrics'>метрики (эта страница)</a>"
+        "<div class='sub'>Ярлыки ниже переиспользуются из отчёта `cli report` "
+        "и потому на английском.</div></div>"
     )
     # Inject a small back-navigation bar just after <body> of the standalone
     # dashboard, so the reused generator stays untouched.
@@ -395,11 +424,11 @@ def _error_page(status: int, message: str, tenant_id: str, lead_id: str) -> HTML
     body = (
         f"{_open_tenant_nav(tenant_id)}"
         f"<div class='error'>&#9888; {e(message)}</div>"
-        f"<p class='note'>HTTP {status} &mdash; the lead was not modified.</p>"
-        f"<p><a href='/ui/{e(tenant_id)}/lead/{e(lead_id)}'>Back to lead</a> &middot; "
-        f"<a href='/ui/{e(tenant_id)}/queue'>Back to queue</a></p>"
+        f"<p class='note'>HTTP {status} &mdash; лид не изменён.</p>"
+        f"<p><a href='/ui/{e(tenant_id)}/lead/{e(lead_id)}'>К лиду</a> &middot; "
+        f"<a href='/ui/{e(tenant_id)}/queue'>К очереди</a></p>"
     )
-    return HTMLResponse(_page(f"{status} decision error", body), status_code=status)
+    return HTMLResponse(_page(f"Ошибка решения ({status})", body), status_code=status)
 
 
 def _apply_decision(tenant_id: str, lead_id: str, actor: str, note: str, kind: str) -> HTMLResponse | RedirectResponse:
@@ -419,7 +448,7 @@ def _apply_decision(tenant_id: str, lead_id: str, actor: str, note: str, kind: s
                 status = 400
             else:
                 status = 409
-            return _error_page(status, msg, tenant_id, lead_id)
+            return _error_page(status, _translate_gate_error(msg), tenant_id, lead_id)
     finally:
         svc.close()
     return RedirectResponse(url=f"/ui/{tenant_id}/queue", status_code=303)
@@ -433,10 +462,7 @@ async def ui_approve(tenant_id: str, lead_id: str, request: Request):
     note = form.get("note") or ""
     if not actor:
         # 400 with the same message the gate raises; the lead is left untouched.
-        return _error_page(
-            400, "actor is required (non-empty) for an auditable decision",
-            tenant_id, lead_id,
-        )
+        return _error_page(400, _translate_gate_error("actor is required"), tenant_id, lead_id)
     return _apply_decision(tenant_id, lead_id, actor, note, "approve")
 
 
@@ -447,8 +473,5 @@ async def ui_reject(tenant_id: str, lead_id: str, request: Request):
     actor = (form.get("actor") or "").strip()
     note = form.get("note") or ""
     if not actor:
-        return _error_page(
-            400, "actor is required (non-empty) for an auditable decision",
-            tenant_id, lead_id,
-        )
+        return _error_page(400, _translate_gate_error("actor is required"), tenant_id, lead_id)
     return _apply_decision(tenant_id, lead_id, actor, note, "reject")
