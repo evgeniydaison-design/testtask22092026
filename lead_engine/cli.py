@@ -22,9 +22,12 @@ from pathlib import Path
 
 from .metrics import funnel as funnel_mod
 from .approval import human_gate
-from .audit import explain_lead
+from . import audit_chain, calibration, provenance
+from . import fuzz as fuzz_mod
+from .audit import explain_lead, subject_export
 from .config import get_tenant, load_settings
 from .reporting import render_dashboard
+from .run_report import render_run_explainer
 from .service import build_service
 from .sources.readers import read_source
 
@@ -162,6 +165,100 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_audit_seal(args) -> int:
+    """Fold this tenant's events+decisions into a SHA-256 chain and seal it."""
+    settings = load_settings()
+    svc = build_service(args.tenant)
+    try:
+        rec = audit_chain.seal(svc.repo, settings.audit_seal_path(args.tenant))
+        _print(rec)
+        return 0
+    finally:
+        svc.close()
+
+
+def cmd_verify_audit(args) -> int:
+    """Rebuild the audit chain and compare it to the seal (tamper detection)."""
+    settings = load_settings()
+    svc = build_service(args.tenant)
+    try:
+        res = audit_chain.verify(svc.repo, settings.audit_seal_path(args.tenant))
+        _print(res)
+        return 3 if res["status"] == "TAMPERED" else 0
+    finally:
+        svc.close()
+
+
+def cmd_calibrate(args) -> int:
+    """Rules-vs-AI disagreement matrix + confidence-threshold what-if sweep."""
+    svc = build_service(args.tenant)
+    try:
+        _print(calibration.compute(svc.pipeline))
+        return 0
+    finally:
+        svc.close()
+
+
+def cmd_fuzz(args) -> int:
+    """Generate many adversarial leads and prove nothing is delivered/approved
+    without a human. Exits non-zero if the invariant is ever violated."""
+    settings = load_settings()
+    rep = fuzz_mod.run_fuzz(
+        settings.data_dir / "_fuzz", n=args.n, seed=args.seed,
+        ai_threshold=settings.ai_confidence_threshold,
+    )
+    _print(rep.as_dict())
+    return 0 if rep.invariant_ok else 3
+
+
+def cmd_subject_export(args) -> int:
+    """DSAR export: everything held about one subject (email) within a tenant."""
+    svc = build_service(args.tenant)
+    try:
+        _print(subject_export(svc.repo, svc.crm, svc.outbox, args.email))
+        return 0
+    finally:
+        svc.close()
+
+
+def cmd_provenance(args) -> int:
+    """Print the reproducibility fingerprint (git + fixtures + config)."""
+    _print(provenance.collect(load_settings()))
+    return 0
+
+
+def cmd_explain_run(args) -> int:
+    """Write ONE self-contained HTML that explains the entire run."""
+    settings = load_settings()
+    metrics, calibs, chains = [], [], []
+    for tenant in settings.tenants:
+        svc = build_service(tenant)
+        try:
+            metrics.append(funnel_mod.compute(svc.repo, svc.crm, svc.outbox))
+            calibs.append(calibration.compute(svc.pipeline))
+            chains.append(audit_chain.verify(svc.repo, settings.audit_seal_path(tenant)))
+        finally:
+            svc.close()
+    fz = None
+    if not args.no_fuzz:
+        rep = fuzz_mod.run_fuzz(
+            settings.data_dir / "_fuzz", n=args.fuzz_n, seed=20260923,
+            ai_threshold=settings.ai_confidence_threshold,
+        )
+        fz = rep.as_dict()
+    prov = provenance.collect(settings)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render_run_explainer(metrics, calibs, chains, fz, prov), encoding="utf-8")
+    _print({
+        "wrote": str(out.resolve()),
+        "tenants": [m.tenant_id for m in metrics],
+        "fuzz_invariant_ok": (fz or {}).get("invariant_ok"),
+        "chains": {c["tenant_id"]: c["status"] for c in chains},
+    })
+    return 0
+
+
 def cmd_demo(args) -> int:
     """Scripted end-to-end demo on synthetic fixtures for one tenant."""
     tenant = args.tenant
@@ -190,13 +287,22 @@ def cmd_demo(args) -> int:
             approved += 1
         svc.delivery.enqueue_all_approved()
         delivery = svc.delivery.process_all()
+        metrics = funnel_mod.compute(svc.repo, svc.crm, svc.outbox)
+        # seal the audit chain so verify-audit / explain-run can prove integrity
+        seal_rec = audit_chain.seal(svc.repo, svc.settings.audit_seal_path(tenant))
         _print({
             "tenant": tenant,
             "qualified": q.processed,
             "auto_approved_ready": approved,
             "delivery": delivery,
             "awaiting_human": len(human_gate.pending_queue(svc.repo)),
-            "metrics": funnel_mod.compute(svc.repo, svc.crm, svc.outbox).as_dict(),
+            "metrics": metrics.as_dict(),
+            "audit_chain": {
+                "status": "sealed",
+                "links": seal_rec["count"],
+                "head": seal_rec["head"],
+                "seal_file": svc.settings.audit_seal_path(tenant).name,
+            },
         })
         return 0
     finally:
@@ -243,6 +349,32 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("report", help="write a cross-tenant HTML funnel dashboard")
     sp.add_argument("--out", default="report.html")
     sp.set_defaults(func=cmd_report)
+
+    sp = sub.add_parser("audit-seal", help="seal the tenant's tamper-evident audit chain")
+    common(sp); sp.set_defaults(func=cmd_audit_seal)
+
+    sp = sub.add_parser("verify-audit", help="verify the audit chain against the seal")
+    common(sp); sp.set_defaults(func=cmd_verify_audit)
+
+    sp = sub.add_parser("calibrate", help="rules-vs-AI matrix + confidence-threshold sweep")
+    common(sp); sp.set_defaults(func=cmd_calibrate)
+
+    sp = sub.add_parser("fuzz", help="adversarial invariant proof (nothing delivered without a human)")
+    sp.add_argument("--n", type=int, default=500)
+    sp.add_argument("--seed", type=int, default=20260923)
+    sp.set_defaults(func=cmd_fuzz)
+
+    sp = sub.add_parser("subject-export", help="DSAR export for one email in a tenant")
+    common(sp); sp.add_argument("--email", required=True); sp.set_defaults(func=cmd_subject_export)
+
+    sp = sub.add_parser("provenance", help="print the reproducibility fingerprint")
+    sp.set_defaults(func=cmd_provenance)
+
+    sp = sub.add_parser("explain-run", help="write ONE self-contained HTML explaining the run")
+    sp.add_argument("--out", default="run.html")
+    sp.add_argument("--fuzz-n", type=int, default=500, dest="fuzz_n")
+    sp.add_argument("--no-fuzz", action="store_true", dest="no_fuzz")
+    sp.set_defaults(func=cmd_explain_run)
 
     sp = sub.add_parser("demo"); common(sp); sp.set_defaults(func=cmd_demo)
     return p

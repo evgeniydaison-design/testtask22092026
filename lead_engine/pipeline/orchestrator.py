@@ -149,6 +149,12 @@ class LeadPipeline:
         enriched["evidence"] = nz.build_evidence(lead)
         return enriched
 
+    def lead_view(self, lead_id: str) -> dict | None:
+        """Public, side-effect-free enriched view for offline analysis
+        (calibration / what-if). Returns None if the lead is not in this tenant."""
+        lead = self.repo.get_lead(lead_id)
+        return None if lead is None else self._enrich(lead)
+
     # -- full automated run up to (not including) delivery ----------------
     def run_qualification(self) -> RunReport:
         """Qualify every lead that is still pre-qualification. Does NOT deliver."""

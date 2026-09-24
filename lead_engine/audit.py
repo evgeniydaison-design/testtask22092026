@@ -15,6 +15,7 @@ from .db import LeadRepository
 from .delivery.crm_mock import MockCRM
 from .delivery.outbox import MockOutbox
 from .models import LeadStage
+from .pipeline import normalize as nz
 
 
 def explain_lead(repo: LeadRepository, crm: MockCRM, outbox: MockOutbox, lead_id: str) -> dict:
@@ -115,4 +116,35 @@ def explain_lead(repo: LeadRepository, crm: MockCRM, outbox: MockOutbox, lead_id
         "outbox_entries": outbox_entries,
         "events": events,
         "sources": sources,
+    }
+
+
+def subject_export(repo: LeadRepository, crm: MockCRM, outbox: MockOutbox, email: str) -> dict:
+    """Data-subject access request (DSAR) export within one tenant.
+
+    Given an email, return everything the system holds about that subject: the
+    full lead trail plus every raw source envelope and every human decision.
+    This is the privacy-facing mirror of ``explain_lead`` and reinforces the
+    opt-out theme: a subject can be shown exactly what was collected and who
+    decided what. It never crosses into another tenant (the repo is scoped).
+    """
+    normalized = nz.normalize_email(email)
+    matches: list[dict] = []
+    if normalized:
+        lead = repo.get_lead_by_key(f"email:{normalized}")
+        if lead:
+            matches.append(lead)
+    if not matches:
+        needle = (email or "").strip().lower()
+        for l in repo.list_leads():
+            if needle and (l.get("email") or "").lower() == needle:
+                matches.append(l)
+    records = [explain_lead(repo, crm, outbox, l["id"]) for l in matches]
+    return {
+        "tenant_id": repo.tenant_id,
+        "query_email": email,
+        "normalized_email": normalized,
+        "found": bool(records),
+        "record_count": len(records),
+        "records": records,
     }

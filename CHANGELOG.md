@@ -12,6 +12,49 @@ so a reviewer can jump from a bullet here to the diff that produced it.
 ## [Unreleased]
 
 ### Added
+- **Tamper-evident audit chain** (`lead_engine/audit_chain.py`): events +
+  decisions folded into a per-tenant SHA-256 hash chain; head sealed to a file
+  outside the lead store. New `cli audit-seal` and `cli verify-audit`
+  (exit non-zero on `TAMPERED`). `cli demo` now seals automatically and prints
+  the head hash. Covered by `tests/test_audit_chain.py` including two negative
+  paths (rewrite a decision actor, delete an event) proving tamper detection.
+  (wow pass)
+- **Rules-vs-AI calibration** (`lead_engine/calibration.py`) + `cli calibrate`:
+  disagreement matrix with both directions (`ai_more_lenient`, `ai_more_strict`,
+  `safety_catches`) plus a monotonic **threshold what-if sweep** that recomputes
+  the combined verdict across a ladder of `ai_confidence_threshold` values
+  without any writes. Covered by `tests/test_calibration.py` (sweep equals the
+  persisted verdicts at the current threshold; monotonicity proven). (wow pass)
+- **Adversarial fuzzer** (`lead_engine/fuzz.py`) + `cli fuzz --n N --seed S`:
+  deterministic generator (seeded RNG) produces a mix of benign, opt-out,
+  injection, XSS, SQLi, fullwidth / mathematical-bold / zero-width obfuscated,
+  anonymous and conflicting records, runs the real pipeline, and **actively
+  attempts an unapproved outbox write on every lead**. Invariant: nothing
+  reaches `human_approved` / `crm_synced` / `outboxed` / `dlq` and outbox stays
+  empty. Covered by `tests/test_fuzz_invariants.py`. (wow pass)
+- **One-file "explain this run"** (`lead_engine/run_report.py`) + `cli
+  explain-run --out run.html`: a single self-contained HTML page combining
+  funnel + **a state-machine SVG generated from `VALID_TRANSITIONS`** (so the
+  diagram cannot drift from the code) + calibration + fuzz verdict + audit-chain
+  status + provenance fingerprint. Covered by `tests/test_run_report.py`.
+  (wow pass)
+- **DSAR / data-subject export** — `lead_engine/audit.py::subject_export` and
+  `cli subject-export --tenant <t> --email <e>` return everything held about one
+  subject within one tenant; the cross-tenant negative case is a test. (wow pass)
+- **Provenance fingerprint** (`lead_engine/provenance.py`) + `cli provenance`:
+  git HEAD (with `-dirty` suffix), fixtures SHA-256 digest, config knobs,
+  Python + platform, and a stable 16-hex combined `fingerprint`. (wow pass)
+- New CLI subcommands: `audit-seal`, `verify-audit`, `calibrate`, `fuzz`,
+  `subject-export`, `provenance`, `explain-run`. Total subcommands now **20**.
+- 17 new tests (94 → **111**), covering every module added in this pass with
+  both positive and negative paths. (wow pass)
+
+### Changed
+- `cli demo` now also seals the tenant's audit chain and prints the head +
+  link count alongside the existing metrics — the golden test is unaffected
+  because it asserts on the deterministic subset of the metrics dict.
+
+_(previous entries from earlier passes below)_
 - `cli audit` / `cli explain` — one-command full trail for a lead
   (raw sources → normalize flags → rules → AI → combined → decisions →
   delivery attempts + DLQ → outbox). (this pass)

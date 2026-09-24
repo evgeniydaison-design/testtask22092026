@@ -80,6 +80,12 @@ class Settings:
     def outbox_path(self, tenant_id: str) -> Path:
         return self.data_dir / f"{tenant_id}.outbox.jsonl"
 
+    def audit_seal_path(self, tenant_id: str) -> Path:
+        """Tamper-evident audit chain seal lives OUTSIDE the lead store so it can
+        be copied to independent WORM storage (in prod it would go to a
+        transparency log / signed external service, not this folder)."""
+        return self.data_dir / f"{tenant_id}.audit.seal.json"
+
     def ensure_data_dir(self) -> Path:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         return self.data_dir

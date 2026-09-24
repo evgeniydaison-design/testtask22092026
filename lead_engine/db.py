@@ -488,3 +488,20 @@ class LeadRepository:
             "WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
             (self.tenant_id,),
         )
+
+    # -- tamper-evident audit chain reads ----------------------------------
+    def list_events_for_chain(self) -> list[dict]:
+        """Full-id event rows in a deterministic order (for the audit hash chain)."""
+        return self._all(
+            "SELECT id, lead_id, stage, detail, created_at FROM events "
+            "WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+            (self.tenant_id,),
+        )
+
+    def list_decisions_for_chain(self) -> list[dict]:
+        """Full-id decision rows in a deterministic order (for the audit hash chain)."""
+        return self._all(
+            "SELECT id, lead_id, action, actor, note, created_at FROM decisions "
+            "WHERE tenant_id = ? ORDER BY created_at ASC, id ASC",
+            (self.tenant_id,),
+        )
