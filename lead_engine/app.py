@@ -15,8 +15,13 @@ from .config import get_tenant
 from .models import WebhookPayload
 from .service import build_service
 from .sources.readers import record_from_webhook
+from .web import router as ui_router
 
 app = FastAPI(title="AthenAI Lead Engine", version="1.0.0")
+
+# Thin operator web UI layered over the same approval gate the CLI uses.
+# Reuses human_gate/audit/reporting; adds no new decision path.
+app.include_router(ui_router)
 
 
 @app.get("/health")

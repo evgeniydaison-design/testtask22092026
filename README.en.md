@@ -29,7 +29,7 @@ rm -rf data/ && \
   python -m lead_engine.cli demo --tenant tenant_alpha && \
   python -m lead_engine.cli demo --tenant tenant_beta
 
-# full test suite (111 tests):
+# full test suite (120 tests):
 python -m pytest
 ```
 
@@ -171,8 +171,9 @@ privacy-facing mirror of `audit`, and a **provenance fingerprint**
 ## HTTP API (mock webhook + read-only views)
 
 > ⚠️ **Security notice — read this before running.**
-> The HTTP API below has **no authentication, no authorization, and no
-> transport encryption**. It is designed to be safe **only** when bound to
+> The HTTP API below **and the operator Web UI (`/ui/*`, next section)** have
+> **no authentication, no authorization, and no transport encryption**. They
+> are designed to be safe **only** when bound to
 > `127.0.0.1` on a developer machine, against synthetic data, with the mock
 > CRM. **Do not** expose this on a public host, a shared network, or anything
 > resembling production infrastructure. If you need to demo it on a LAN, put a
@@ -197,6 +198,51 @@ POST with the same `idempotency_key` but a different `record` also returns
 guard — a caller cannot reuse a key to smuggle a different record). Exactly one
 lead ends up in the store.
 
+## Web UI (optional, layered on the approval gate)
+
+This is a **thin additional layer**, not a replacement for the chosen deepening
+module (integration resilience) and not a new approval path. It makes the
+approval flow clickable instead of CLI-only by calling exactly the same
+functions the CLI calls: `approval/human_gate.approve_lead()` and `reject_lead()`.
+Principles:
+
+- **Same gate.** No decision logic lives in the web layer - it only forwards to
+  the existing approval gate.
+- **Draft is read-only.** The UI shows the draft but never lets you edit it.
+- **No new heavy dependencies.** Plain `HTMLResponse` f-strings on the FastAPI
+  already present - no template engine, no `python-multipart`.
+- **No fake authentication.** Instead of a login there is a plain "your actor-id"
+  text field (e.g. `ops-alpha`) that is only forwarded to `approve_lead(actor=...)`
+  for the audit trail. False assuredness is worse than honest locality.
+
+| Endpoint | What it does |
+|----------|--------------|
+| `GET /ui` | landing page: a link to each tenant's queue |
+| `GET /ui/{tenant}/queue` | table of leads awaiting a decision (`manual_review` + `approved_ready`): id, canonical key, rules verdict, AI verdict, confidence, safety flags, `updated_at`, an "Open" button |
+| `GET /ui/{tenant}/lead/{id}` | the lead's full trail: raw sources, normalize flags, rules + AI verdicts (+ confidence, evidence_field_ids, safety flags), a read-only draft, and an `actor` + `note` form with Approve/Reject |
+| `POST /ui/{tenant}/lead/{id}/approve` | form-data `actor`,`note` → `human_gate.approve_lead(...)` → 303 back to the queue |
+| `POST /ui/{tenant}/lead/{id}/reject` | form-data `actor`,`note` → `human_gate.reject_lead(...)` → 303 back to the queue |
+| `GET /ui/{tenant}/metrics` | funnel summary - the same generator `cli report` uses (`reporting.render_dashboard`) |
+
+Backend validation (shared by the UI and the CLI, living in `human_gate`):
+- `actor` is required and non-empty, otherwise the same `400`/`409` you get from
+  the CLI without `--actor` (the identical `ApprovalError`); the lead stays in
+  its original stage.
+- A lead not in an approvable/rejectable stage (state machine in `models.py`)
+  returns a clear `409`.
+- A lead id that is not in this tenant returns `404` (the repository is tenant-scoped).
+- There is **no** `message`/`text` POST parameter - only `actor` + `note`. There
+  is no way to push arbitrary text into the outbox instead of the stored draft.
+- Tenant is explicit in the URL and there are no cross-tenant lists. Every
+  interpolated value is HTML-escaped, so even a prompt-injection / XSS raw
+  source renders as inert text, never live markup.
+
+```bash
+python -m uvicorn lead_engine.app:app --host 127.0.0.1 --port 8000
+# then open http://127.0.0.1:8000/ui
+python -m pytest tests/test_web_ui.py        # 9 tests over the same gate
+```
+
 ## Configuration
 All runtime settings come from environment variables (see `.env.example`):
 data directory, tenants, AI confidence threshold, retry/backoff limits, and the
@@ -212,7 +258,7 @@ There are **no real secrets**; the AI provider is an offline deterministic mock.
 | 3 | Rules + safe AI, strict JSON schema | `qualify_rules.py`; `qualify_ai.py` + `AIQualification(extra="forbid")`; safety forces manual/reject |
 | 4 | Evidence-only draft, human gate before outbox | `draft.py` (template, evidence fields only) + `approval/human_gate.py` + stage machine (`models.py`) |
 | 5 | Mock CRM, retry/DLQ/reprocess 429/5xx, metrics | `delivery/crm_mock.py`, `delivery/retry.py`, `delivery/outbox.py`, `metrics/funnel.py` |
-| 6 | ≥ 60 synthetic records, ≥ 18 tests | `fixtures/` (**102 raw records, 92 unique leads**) + `fixtures/adversarial.json` (15 more), `tests/` (**111 tests**, ~6× the minimum) |
+| 6 | ≥ 60 synthetic records, ≥ 18 tests | `fixtures/` (**102 raw records, 92 unique leads**) + `fixtures/adversarial.json` (15 more), `tests/` (**120 tests**, ~6× the minimum) |
 | 7 | One deepened module | **integration resilience** (`delivery/retry.py` + `crm_mock.py`) |
 
 ## Safety model (summary)
@@ -254,7 +300,7 @@ normalization, or qualification. Concretely:
 
 - **Demo** (102 raw records, 2 tenants): runs the full loop in a few seconds;
   the numbers above are pinned by `tests/test_golden_demo.py`.
-- **Test suite**: **111 tests, ~37 s** on a laptop (Python 3.13.5, pytest 9.1.1).
+- **Test suite**: **120 tests, ~37 s** on a laptop (Python 3.13.5, pytest 9.1.1).
 - **Synthetic load test** (`scripts/load_test.py`), fresh data dir per run:
   - `--n 1000` → **5.2 s**, **~192 records / sec** end-to-end
     (ingest+dedup 2.0 s + qualify 3.2 s), 931 unique leads / 46 dups merged.
@@ -283,8 +329,14 @@ real production system would need.
   and this is fine for one CLI/one uvicorn worker. Two competing workers on
   the same store will serialise on commits; a real deployment would move
   to Postgres + a queue.
-- **No auth / TLS on the HTTP surface** (see the security notice above). The
+- **No auth / TLS on the HTTP surface** - neither the JSON endpoints nor `/ui/*`
+  (see the security notice above). The
   FastAPI layer exists so the webhook contract can be exercised locally.
+- **The operator Web UI is a deliberate simplification for this take-home:** no
+  auth / TLS, local demo only, and the `actor` is typed by hand and never
+  verified. It is a thin layer over the same approval gate the CLI uses (the same
+  functions, no separate decision logic, draft read-only); it neither changes the
+  threat model nor replaces the chosen deepening module.
 - **Mock LLM.** `MockLLMProvider` is deterministic and offline. The
   strict-schema + evidence-grounding + safety-forcing wrapper is real; the
   model behind it is not.
@@ -305,6 +357,7 @@ lead_engine/        application code
   ├── fuzz.py         deterministic adversarial generator + delivery-invariant proof
   ├── provenance.py   reproducibility fingerprint (git + fixtures digest + config)
   ├── run_report.py   one-file "explain this run" HTML (state-machine SVG + all sections)
+  ├── web.py          thin operator Web UI over the same gate (HTMLResponse, optional)
   ├── pipeline/     normalize, dedup, qualify_rules, qualify_ai, draft, orchestrator
   ├── approval/     human_gate (hard approval choke point)
   ├── delivery/     crm_mock, outbox (guarded), retry (deep module)
@@ -314,11 +367,11 @@ lead_engine/        application code
   │                 deliver/reprocess/metrics/audit/explain/report/demo +
   │                 audit-seal/verify-audit/calibrate/fuzz/subject-export/
   │                 provenance/explain-run)
-  └── app.py        FastAPI webhook + queue + metrics + health
+  └── app.py        FastAPI webhook + queue + metrics + health + mounted /ui
 
 fixtures/           generator + committed CSV/JSON/webhook data (102 records)
                     + adversarial.json (15 malicious cases) + adversarial_generate.py
-tests/              pytest suite (111 tests)
+tests/              pytest suite (120 tests)
 docs/               THREAT_MODEL.md, COMMERCIAL_MEMO.md
 scripts/            load_test.py (synthetic stress run)
 data/               runtime files (gitignored; regenerated on demand)
@@ -346,7 +399,9 @@ data/               runtime files (gitignored; regenerated on demand)
   total) — approximately:
   architecture + planning 1.5 h, implementation across pipeline / approval /
   delivery / metrics 2 h, fixtures + tests 1 h, docs 0.5 h, quality pass +
-  verification + Tier-2/3 fixes 2.5 h, extras pass 2 h. The number is stated as an estimate
+  verification + Tier-2/3 fixes 2.5 h, extras pass 2 h, plus a separate
+  follow-up increment - the thin operator Web UI (~1 h, +9 tests → 120 total).
+  The number is stated as an estimate
   derived from this session's timeline, not a timesheet.
 - **API / tooling cost: $0** — the engine uses an offline mock LLM, no
   external AI calls, no paid services. Cost is limited to local development

@@ -54,6 +54,11 @@ def approve_lead(repo: LeadRepository, lead_id: str, actor: str, note: str = "")
     lead = repo.get_lead(lead_id)
     if lead is None:
         raise ApprovalError(f"lead {lead_id} not found")
+    if not (actor or "").strip():
+        # Single source of truth for the actor invariant: identical for CLI and
+        # web. Checked before any mutation so a rejected call leaves no partial
+        # decision and does not move the lead.
+        raise ApprovalError("actor is required (non-empty) for an auditable decision")
     if int(lead.get("opt_out", 0)):
         # hard stop: an opt-out lead cannot be approved for contact
         raise ApprovalError("opt-out leads cannot be approved")
@@ -80,6 +85,8 @@ def reject_lead(repo: LeadRepository, lead_id: str, actor: str, note: str = "") 
     lead = repo.get_lead(lead_id)
     if lead is None:
         raise ApprovalError(f"lead {lead_id} not found")
+    if not (actor or "").strip():
+        raise ApprovalError("actor is required (non-empty) for an auditable decision")
     frm = LeadStage(lead["stage"])
     if frm in (LeadStage.MANUAL_REVIEW, LeadStage.APPROVED_READY):
         # approved_ready can be sent back to manual, then rejected; shortcut:
