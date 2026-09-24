@@ -1,42 +1,43 @@
 # AthenAI Lead Engine
 
-A small, **locally runnable** lead-processing service. It demonstrates a safe,
-auditable loop from several intake sources to a manager's decision and a **mock**
-CRM — built entirely on **synthetic data** (no real CRM, keys, client lists,
-scraping, or outbound messaging).
+📖 Язык: **Русский** · [English](./README.en.md)
+
+Небольшой **локально запускаемый** сервис обработки лидов. Он демонстрирует
+безопасный, аудируемый цикл от нескольких источников поступления до решения
+менеджера и **мок-CRM** — построенный полностью на **синтетических данных**
+(без реальной CRM, ключей, клиентских баз, скрейпинга и исходящих сообщений).
 
 ```
-CSV / JSON / mock webhook
-      -> normalize -> dedup -> qualify (rules + safe AI)
-      -> evidence-only draft -> HUMAN APPROVAL (hard gate)
-      -> mock CRM + task -> local mock-outbox -> metrics
-                \__ retry / backoff / DLQ / reprocess on 429 & 5xx __/
+CSV / JSON / мок-webhook
+      -> нормализация -> дедупликация -> квалификация (правила + безопасный ИИ)
+      -> черновик только из доказательств -> ОДОБРЕНИЕ ЧЕЛОВЕКОМ (жёсткий шлюз)
+      -> мок-CRM + задача -> локальный мок-outbox -> метрики
+                \__ retry / backoff / DLQ / повтор на 429 и 5xx __/
 ```
 
-## Requirements
-- Python 3.11+ (developed and verified on 3.13.5)
-- `pip install -r requirements.txt` (pinned: pydantic v2, fastapi, uvicorn, httpx, pytest)
+## Требования
+- Python 3.11+ (разработано и проверено на 3.13.5)
+- `pip install -r requirements.txt` (версии зафиксированы: pydantic v2, fastapi, uvicorn, httpx, pytest)
 
-## Quick start (from a fresh checkout)
+## Быстрый старт (со свежего клона)
 
 ```bash
 pip install -r requirements.txt
 
-# one-shot, scripted end-to-end demo on the synthetic fixtures (both tenants):
+# сценарный end-to-end демо-прогон за один шаг на синтетических фикстурах (оба тенанта):
 rm -rf data/ && \
   python -m lead_engine.cli demo --tenant tenant_alpha && \
   python -m lead_engine.cli demo --tenant tenant_beta
 
-# full test suite (111 tests):
+# полный набор тестов (111 тестов):
 python -m pytest
 ```
 
-The `rm -rf data/` line matters: it guarantees you start from an empty store, so
-the numbers you see below are exactly reproducible. On Windows PowerShell use
+Строка `rm -rf data/` важна: она гарантирует старт с пустого хранилища, поэтому
+приведённые ниже числа воспроизводятся точно. В Windows PowerShell используйте
 `Remove-Item -Recurse -Force data\; python -m lead_engine.cli demo --tenant tenant_alpha`.
 
-The demo prints funnel metrics. For **each tenant** the expected output is
-identical:
+Демо печатает метрики воронки. Для **каждого тенанта** ожидаемый вывод идентичен:
 
 ```
 sources=51  leads=46  duplicates_merged=5
@@ -44,312 +45,313 @@ stages:   outboxed=25  manual_review=17  rejected=4
 delivery: succeeded=25 dlq=0   outbox_entries=25
 ```
 
-These exact numbers are pinned by `tests/test_golden_demo.py`. If a code change
-shifts them, that test fails on purpose.
+Эти точные числа закреплены тестом `tests/test_golden_demo.py`. Если изменение
+кода сдвинет их, этот тест намеренно упадёт.
 
-## How the "≥ 60 synthetic records" requirement is met
+## Как выполняется требование «≥ 60 синтетических записей»
 
-Two defensible counts, both well above the 60-record floor:
+Два корректных подсчёта, оба значительно выше планки в 60 записей:
 
-| Count                                             | Per tenant | Both tenants |
-|-------------------------------------------------|-----------:|-------------:|
-| **Raw source records ingested**                   |       51   |   **102**    |
-| ├─ CSV (`fixtures/leads_<tenant>.csv`)            |       24   |     48       |
-| ├─ JSON (`fixtures/leads_<tenant>.json`)          |       16   |     32       |
-| └─ Webhook envelopes (`fixtures/webhook_<tenant>.json`) | 11 |     22   |
-| **Unique leads after deduplication**              |       46   |   **92**     |
-| Cross-source duplicates merged                    |        5   |     10       |
+| Показатель                                          | На тенант | Оба тенанта |
+|-----------------------------------------------------|----------:|------------:|
+| **Исходных записей принято (ingest)**                |    51     |   **102**   |
+| ├─ CSV (`fixtures/leads_<tenant>.csv`)               |    24     |     48      |
+| ├─ JSON (`fixtures/leads_<tenant>.json`)             |    16     |     32      |
+| └─ Конверты webhook (`fixtures/webhook_<tenant>.json`) |  11     |     22      |
+| **Уникальных лидов после дедупликации**              |    46     |   **92**    |
+| Объединённых дублей между источниками                |     5     |     10      |
 
-The 5 duplicate merges per tenant come from the *webhook* file re-submitting 5
-of the CSV strongs (deliberate, to exercise inbound idempotency + canonical
-dedup). If your grader is counting unique leads, use **92**; if raw ingested
-records, **102**. The pipeline is exercised end-to-end on both files by
-`cli demo`. Additionally, `fixtures/adversarial.json` contributes 15
-hand-crafted malicious cases that are exercised by `tests/test_adversarial_fixtures.py`.
+5 объединённых дублей на тенант возникают потому, что *webhook*-файл повторно
+присылает 5 записей из CSV-сильных (сделано намеренно, чтобы проверить
+идемпотентность входа + каноническую дедупликацию). Если проверяющий считает
+уникальные лиды — используйте **92**; если исходные принятые записи — **102**.
+Пайплайн прогоняется end-to-end по обоим файлам командой `cli demo`. Дополнительно
+`fixtures/adversarial.json` вносит 15 вручную сконструированных вредоносных
+случаев, которые проверяются в `tests/test_adversarial_fixtures.py`.
 
-## Manual operator flow (CLI)
+## Ручной операторский флоу (CLI)
 
 ```bash
 python -m lead_engine.cli ingest    --tenant tenant_alpha --format csv  --path fixtures/leads_alpha.csv
 python -m lead_engine.cli ingest    --tenant tenant_alpha --format json --path fixtures/leads_alpha.json
 python -m lead_engine.cli qualify   --tenant tenant_alpha
-python -m lead_engine.cli queue     --tenant tenant_alpha              # what needs a human
-python -m lead_engine.cli review    --tenant tenant_alpha --lead <id>  # evidence + AI + draft
+python -m lead_engine.cli queue     --tenant tenant_alpha              # что требует человека
+python -m lead_engine.cli review    --tenant tenant_alpha --lead <id>  # доказательства + ИИ + черновик
 python -m lead_engine.cli approve   --tenant tenant_alpha --lead <id> --actor ops-alpha
-python -m lead_engine.cli deliver   --tenant tenant_alpha              # gated by approval
-python -m lead_engine.cli reprocess --tenant tenant_alpha             # drain DLQ after recovery
+python -m lead_engine.cli deliver   --tenant tenant_alpha              # закрыто одобрением (шлюз)
+python -m lead_engine.cli reprocess --tenant tenant_alpha             # слить DLQ после восстановления
 python -m lead_engine.cli metrics   --tenant tenant_alpha
-python -m lead_engine.cli audit     --tenant tenant_alpha --lead <id> # full trail for one lead
-python -m lead_engine.cli audit     --tenant tenant_alpha --latest    # (alias: explain)
-python -m lead_engine.cli report    --out report.html                  # cross-tenant HTML dashboard
-python -m lead_engine.cli calibrate --tenant tenant_alpha             # rules-vs-AI matrix + confidence-threshold sweep
-python -m lead_engine.cli audit-seal   --tenant tenant_alpha          # seal the tamper-evident audit chain
-python -m lead_engine.cli verify-audit --tenant tenant_alpha          # prove the audit trail was not edited
-python -m lead_engine.cli subject-export --tenant tenant_alpha --email ava.stone.x1@example.com   # DSAR export
-python -m lead_engine.cli fuzz --n 1000                                # adversarial invariant proof
-python -m lead_engine.cli provenance                                   # reproducibility fingerprint
-python -m lead_engine.cli explain-run --out run.html                   # ONE HTML file that explains the whole run
+python -m lead_engine.cli audit     --tenant tenant_alpha --lead <id> # полный след по одному лиду
+python -m lead_engine.cli audit     --tenant tenant_alpha --latest    # (синоним: explain)
+python -m lead_engine.cli report    --out report.html                  # кросс-тенантный HTML-дашборд
+python -m lead_engine.cli calibrate --tenant tenant_alpha             # матрица «правила vs ИИ» + свип порога уверенности
+python -m lead_engine.cli audit-seal   --tenant tenant_alpha          # опечатать защищённую от подмены цепочку аудита
+python -m lead_engine.cli verify-audit --tenant tenant_alpha          # доказать, что след аудита не редактировали
+python -m lead_engine.cli subject-export --tenant tenant_alpha --email ava.stone.x1@example.com   # выгрузка по DSAR
+python -m lead_engine.cli fuzz --n 1000                                # доказательство инварианта на adversarial-данных
+python -m lead_engine.cli provenance                                   # отпечаток воспроизводимости
+python -m lead_engine.cli explain-run --out run.html                   # ОДИН HTML-файл, объясняющий весь прогон
 ```
 
-`explain-run` opens as a single self-contained page (no external assets): the
-stage machine rendered as an SVG **generated from the same `VALID_TRANSITIONS`
-table the code enforces**, the per-tenant funnel, the rules-vs-AI calibration,
-the adversarial-fuzz verdict, the audit-chain status and the provenance
-fingerprint. It is the fastest way to review the entire system. (Add
-`--no-fuzz` to skip the fuzz step.)
+`explain-run` открывается как одна самодостаточная страница (без внешних
+ресурсов): машина состояний, отрисованная в SVG **из той же таблицы
+`VALID_TRANSITIONS`, которую исполняет код**, воронка по тенантам, калибровка
+«правила vs ИИ», вердикт adversarial-фаззинга, статус цепочки аудита и отпечаток
+провенанса. Это самый быстрый способ ревьюить всю систему. (Добавьте `--no-fuzz`,
+чтобы пропустить шаг фаззинга.)
 
-`audit` prints the complete journey of one lead as a single JSON document:
-raw source envelopes → normalize flags → rules verdict+reason → AI
-verdict+confidence+safety → combined verdict → draft → decisions → delivery
-attempts (+ DLQ reason) → outbox entry → event trail.
+`audit` печатает полный путь одного лида одним JSON-документом: исходные
+конверты источников → флаги нормализации → вердикт правил + причина → вердикт
+ИИ + уверенность + безопасность → итоговый вердикт → черновик → решения →
+попытки доставки (+ причина DLQ) → запись outbox → цепочка событий.
 
-## Beyond the brief
+## Сверх технического задания
 
-The task asked for a working loop; these are the additions that treat it as if
-it had to be trusted in production. All of them run offline, need no new
-dependencies, and are covered by tests.
+В задании требовался рабочий цикл; ниже — дополнения, которые относятся к нему
+так, словно ему нужно доверять в проде. Все они работают офлайн, не требуют
+новых зависимостей и покрыты тестами.
 
-**1 · Tamper-evident audit chain (`audit_chain.py`).** The whole product rests
-on one claim: *a message never reached the outbox without a recorded human
-approval*. That is only worth as much as the durability of the audit rows.
-Every event + decision per tenant is folded into a SHA-256 hash chain (each
-link hashes the previous head); the running head is *sealed* to a file outside
-the lead store. `verify-audit` rebuilds the chain and flags any after-the-fact
-edit, insert or delete. Live demonstration:
-
-```
-1) honest verify   -> verified
-2) after tampering -> TAMPERED (head_matches=False)   # UPDATE decisions SET actor='mallory'
-3) after restoring -> verified
-```
-
-This is deliberately about *detectability*, not secrecy — no key, no crypto
-infrastructure; in production you would publish the head hash to a transparency
-log the auditor controls, and the property being demonstrated would be identical.
-
-**2 · Rules-vs-AI calibration (`calibration.py`).** A `cli calibrate` (and the
-run-explainer) shows the disagreement matrix and a **threshold what-if sweep**:
-recompute the combined verdict across a ladder of `ai_confidence_threshold`
-values with zero writes, and it is provably monotonic (lowering the threshold
-only ever moves leads toward auto-approve, never hides an unsafe one). On the
-fixtures the two layers agreed on 32/46 leads; the AI would have auto-passed 10
-the rules conservatively held back — evidence the two layers earn their keep
-independently. The strict AND-guard means a lead auto-approves only when both
-agree. The *other* direction (`safety_catches`, AI escalating a rules-approve)
-is 0 on the shipped mock, but is exercised end-to-end by
-`AdversarialMockLLMProvider` in `tests/test_adversarial_llm.py`.
-
-**3 · Adversarial fuzzing (`fuzz.py`).** `cli fuzz --n 1000` deterministically
-generates a mix of benign and hostile leads (prompt injection, multilingual
-opt-out, XSS, SQLi, fullwidth/mathematical-bold/zero-width obfuscation,
-conflicting contacts, anonymous records), runs the real pipeline, then **actively
-tries to write every lead straight to the outbox**. A recorded run:
+**1 · Защищённая от подмены цепочка аудита (`audit_chain.py`).** Весь продукт
+держится на одном утверждении: *сообщение никогда не попало в outbox без
+зафиксированного одобрения человеком*. Насколько надёжны строки аудита, настолько
+ценно и это утверждение. Каждое событие и каждое решение по тенанту сворачивается
+в цепочку хешей SHA-256 (каждое звено хеширует предыдущую голову); текущая голова
+*опечатывается* в файл вне хранилища лидов. `verify-audit` перестраивает цепочку
+и помечает любую правку, вставку или удаление задним числом. Живая демонстрация:
 
 ```
-n=1000 -> 939 unique leads; flags: injection=309 opt_out=207 conflict=47 needs_review=363
-unapproved outbox writes: 939/939 blocked by the gate;  outbox entries: 0
-invariant_ok: true   (no lead reached human_approved / crm_synced / outboxed / dlq)
+1) честная проверка        -> verified
+2) после подмены           -> TAMPERED (head_matches=False)   # UPDATE decisions SET actor='mallory'
+3) после восстановления    -> verified
 ```
 
-If any lead ever slipped past the gate, the CLI exits non-zero. This is a
-*property* proof, not a list of examples — `tests/test_fuzz_invariants.py` runs
-it in CI.
+Речь намеренно о *detectability*, а не о секретности — без ключа и без
+криптоинфраструктуры; в проде head-хеш публиковали бы в transparency log,
+который контролирует аудитор, и демонстрируемое свойство было бы тем же самым.
 
-**4 · One-file "explain this run" (`run_report.py`).** `cli explain-run`
-writes a single self-contained HTML page that shows the state machine, funnel,
-calibration, fuzz verdict, audit-chain status and a provenance fingerprint —
-with the diagram generated from `VALID_TRANSITIONS` itself, so it can never
-drift from what the code actually enforces.
+**2 · Калибровка «правила vs ИИ» (`calibration.py`).** `cli calibrate` (и
+объяснитель прогона) показывает матрицу расхождений и **what-if свип порога**:
+пересчёт итогового вердикта по лестнице значений `ai_confidence_threshold` с
+нулевой записью, и он доказуемо монотонен (понижение порога двигает лиды только
+в сторону авто-одобрения и никогда не скрывает небезопасный). На фикстурах два
+слоя совпали по 32/46 лидам; ИИ авто-пропустил бы 10 лидов, которые правила
+консервативно придержали, — это доказывает, что оба слоя полезны независимо.
+Строгий AND-guard: лид авто-одобряется только когда согласны оба. *Обратное*
+направление (`safety_catches`, когда ИИ эскалирует rules-approve) на приложенном
+моке равно 0, но сквозным образом проверяется `AdversarialMockLLMProvider`
+в `tests/test_adversarial_llm.py`.
 
-Plus a **DSAR / data-subject export** (`cli subject-export --email`) — the
-privacy-facing mirror of `audit`, and a **provenance fingerprint**
-(`cli provenance`: git commit + fixtures digest + config knobs → a stable
-16-hex `fingerprint`), which is what makes the golden test meaningful.
+**3 · Adversarial-фаззинг (`fuzz.py`).** `cli fuzz --n 1000` детерминированно
+генерирует смесь безобидных и враждебных лидов (prompt injection, мультиязычный
+opt-out, XSS, SQLi, fullwidth/mathematical-bold/zero-width обфускация,
+конфликтующие контакты, анонимные записи), прогоняет реальный пайплайн, а затем
+**активно пытается записать каждый лид напрямую в outbox**. Записанный прогон:
 
-## HTTP API (mock webhook + read-only views)
+```
+n=1000 -> 939 уникальных лидов; флаги: injection=309 opt_out=207 conflict=47 needs_review=363
+несанкционированные записи в outbox: 939/939 заблокированы шлюзом;  записей outbox: 0
+invariant_ok: true   (ни один лид не дошёл до human_approved / crm_synced / outboxed / dlq)
+```
 
-> ⚠️ **Security notice — read this before running.**
-> The HTTP API below has **no authentication, no authorization, and no
-> transport encryption**. It is designed to be safe **only** when bound to
-> `127.0.0.1` on a developer machine, against synthetic data, with the mock
-> CRM. **Do not** expose this on a public host, a shared network, or anything
-> resembling production infrastructure. If you need to demo it on a LAN, put a
-> reverse proxy in front that terminates TLS and enforces a bearer token, and
-> swap the mock CRM/outbox for real, credentialed integrations. The included
-> `.env.example` deliberately binds to `127.0.0.1` for exactly this reason.
+Если бы хоть один лид когда-нибудь прошёл шлюз, CLI завершился бы с
+ненулевым кодом. Это доказательство *свойства*, а не перечень примеров —
+`tests/test_fuzz_invariants.py` гоняет его в CI.
+
+**4 · Однофайловое «объяснение прогона» (`run_report.py`).** `cli explain-run`
+пишет одну самодостаточную HTML-страницу, показывающую машину состояний,
+воронку, калибровку, вердикт фаззинга, статус цепочки аудита и отпечаток
+провенанса — причём диаграмма строится из самого `VALID_TRANSITIONS`, поэтому не
+может разойтись с тем, что реально исполняет код.
+
+Плюс **выгрузка по DSAR / субъекту данных** (`cli subject-export --email`) —
+privacy-зеркало команды `audit`, — и **отпечаток провенанса** (`cli provenance`:
+git-коммит + дайджест фикстур + параметры конфигурации → стабильный 16-ричный
+`fingerprint`), который и делает золотой тест осмысленным.
+
+## HTTP API (мок-webhook + read-only просмотры)
+
+> ⚠️ **Предупреждение о безопасности — прочитайте перед запуском.**
+> У описанного ниже HTTP API **нет аутентификации, авторизации и шифрования
+> канала**. Он безопасен **только** при привязке к `127.0.0.1` на машине
+> разработчика, на синтетических данных и с мок-CRM. **Не** выставляйте его на
+> публичный хост, в общую сеть и ни на что, похожее на прод-инфраструктуру. Если
+> нужно показать его в LAN — поставьте спереди reverse proxy, который терминирует
+> TLS и требует bearer-токен, и замените мок-CRM/outbox на реальные
+> авторизованные интеграции. Приложенный `.env.example` намеренно привязан к
+> `127.0.0.1` именно по этой причине.
 
 ```bash
 python -m uvicorn lead_engine.app:app --host 127.0.0.1 --port 8000
 ```
-- `POST /ingest/webhook/{tenant_id}` - body `{"tenant_id","idempotency_key","record":{...}}`
-  (inbound-idempotent; validates the tenant; never delivers on its own)
-- `GET /queue/{tenant_id}` - pending human-review queue
-- `GET /metrics/{tenant_id}` - funnel metrics
+- `POST /ingest/webhook/{tenant_id}` - тело `{"tenant_id","idempotency_key","record":{...}}`
+  (идемпотентен на входе; проверяет тенант; сам ничего не доставляет)
+- `GET /queue/{tenant_id}` - очередь на ручную проверку
+- `GET /metrics/{tenant_id}` - метрики воронки
 - `GET /health`
 
-**Live verification of inbound idempotency** (see `tests/test_adversarial_*` and
-`CHANGELOG.md` for the recorded run): first POST returns `status=ingested`;
-second POST with identical payload returns `status=duplicate_ignored`; a third
-POST with the same `idempotency_key` but a different `record` also returns
-`duplicate_ignored` (the UNIQUE `(tenant_id, idempotency_key)` is the strongest
-guard — a caller cannot reuse a key to smuggle a different record). Exactly one
-lead ends up in the store.
+**Живая проверка идемпотентности входа** (см. `tests/test_adversarial_*` и
+`CHANGELOG.md` с записанным прогоном): первый POST возвращает `status=ingested`;
+второй POST с идентичным телом — `status=duplicate_ignored`; третий POST с тем же
+`idempotency_key`, но другим `record` — тоже `duplicate_ignored` (UNIQUE
+`(tenant_id, idempotency_key)` — самый сильный страж: нельзя переиспользовать ключ,
+чтобы контрабандой протащить другую запись). В хранилище оказывается ровно один лид.
 
-## Configuration
-All runtime settings come from environment variables (see `.env.example`):
-data directory, tenants, AI confidence threshold, retry/backoff limits, and the
-mock CRM fault profile (`none | flaky_429 | flaky_5xx | always_500 | non_retryable_405`).
-There are **no real secrets**; the AI provider is an offline deterministic mock.
+## Конфигурация
+Все настройки рантайма берутся из переменных окружения (см. `.env.example`):
+каталог данных, тенанты, порог уверенности ИИ, лимиты retry/backoff и профиль
+сбоев мок-CRM (`none | flaky_429 | flaky_5xx | always_500 | non_retryable_405`).
+**Никаких реальных секретов нет**; AI-провайдер — офлайн детерминированный мок.
 
-## How the key requirements are met
+## Как закрыты ключевые требования
 
-| # | Requirement | Where |
-|---|-------------|-------|
-| 1 | Two tenants, strict isolation | physical per-tenant SQLite files + `LeadRepository(tenant_id)` scoped queries (`db.py`, `config.py`) |
-| 2 | Idempotency + dedup + evidence | `canonical_key`, UNIQUE `(tenant_id,canonical_key)`, `lead_sources` snapshot, inbound idempotency key (`normalize.py`, `dedup.py`, `db.py`) |
-| 3 | Rules + safe AI, strict JSON schema | `qualify_rules.py`; `qualify_ai.py` + `AIQualification(extra="forbid")`; safety forces manual/reject |
-| 4 | Evidence-only draft, human gate before outbox | `draft.py` (template, evidence fields only) + `approval/human_gate.py` + stage machine (`models.py`) |
-| 5 | Mock CRM, retry/DLQ/reprocess 429/5xx, metrics | `delivery/crm_mock.py`, `delivery/retry.py`, `delivery/outbox.py`, `metrics/funnel.py` |
-| 6 | ≥ 60 synthetic records, ≥ 18 tests | `fixtures/` (**102 raw records, 92 unique leads**) + `fixtures/adversarial.json` (15 more), `tests/` (**111 tests**, ~6× the minimum) |
-| 7 | One deepened module | **integration resilience** (`delivery/retry.py` + `crm_mock.py`) |
+| # | Требование | Где |
+|---|------------|-----|
+| 1 | Два тенанта, строгая изоляция | физические отдельные SQLite-файлы на тенант + scoped-запросы `LeadRepository(tenant_id)` (`db.py`, `config.py`) |
+| 2 | Идемпотентность + дедупликация + доказательства | `canonical_key`, UNIQUE `(tenant_id,canonical_key)`, снимок `lead_sources`, ключ идемпотентности входа (`normalize.py`, `dedup.py`, `db.py`) |
+| 3 | Правила + безопасный ИИ, строгая JSON-схема | `qualify_rules.py`; `qualify_ai.py` + `AIQualification(extra="forbid")`; безопасность форсирует manual/reject |
+| 4 | Черновик только из доказательств, шлюз человека перед outbox | `draft.py` (шаблон, только поля-доказательства) + `approval/human_gate.py` + машина состояний (`models.py`) |
+| 5 | Мок-CRM, retry/DLQ/reprocess 429/5xx, метрики | `delivery/crm_mock.py`, `delivery/retry.py`, `delivery/outbox.py`, `metrics/funnel.py` |
+| 6 | ≥ 60 синтетических записей, ≥ 18 тестов | `fixtures/` (**102 исходные записи, 92 уникальных лида**) + `fixtures/adversarial.json` (ещё 15), `tests/` (**111 тестов**, ~6× от минимума) |
+| 7 | Один углублённый модуль | **отказоустойчивость интеграций** (`delivery/retry.py` + `crm_mock.py`) |
 
-## Safety model (summary)
-- The AI may only reference `evidence_field_ids` that exist on the lead; unknown
-  references, out-of-schema fields, out-of-range confidence, or non-JSON output
-  are treated as failures and routed to **manual review**.
-- Opt-out and prompt-injection leads can never be auto-approved or auto-rejected
-  for contact by the model; opt-out is a hard reject and cannot be approved.
-- A draft is generated **only** from evidence; untrusted inbound text is never
-  echoed. The outbox refuses anything without a recorded human `approve`.
-- Delivery is **local only** (mock CRM + JSONL outbox); nothing is ever sent.
-- **Unicode / zero-width hardening:** safety patterns run over an NFKD-normalised,
-  zero-width-stripped copy of every text field, so `𝐢𝐠𝐧𝐨𝐫𝐞 𝐩𝐫𝐞𝐯𝐢𝐨𝐮𝐬`,
-  `ｉｇｎｏｒｅ ｐｒｅｖｉｏｕｓ`, and `ig​nore previous` are all caught.
-- **Hostile text quarantine:** the injection pattern set includes XSS markers
-  (`<script`, `javascript:`, `on*=…=`) and classic SQLi markers
-  (`DROP TABLE`, `UNION SELECT`, `;--`) so even a mistakenly-approved lead
-  cannot smuggle those downstream.
-- **Adversarial LLM proof:** `AdversarialMockLLMProvider` deliberately emits
-  seven failure modes (non-JSON, extra fields, out-of-range confidence,
-  ungrounded evidence refs, empty evidence, wrong enum, override-optout) and
-  **every mode is verified end-to-end** by `tests/test_adversarial_llm.py`
-  to leave the pipeline unable to reach `outboxed` without a human approve.
-- **Tamper-evident audit trail:** events + decisions are folded into a per-tenant
-  SHA-256 hash chain whose head is sealed outside the DB, so any after-the-fact
-  edit of an approval or stage-transition is detectable via `cli verify-audit`
-  (`audit_chain.py`, `tests/test_audit_chain.py`).
-- **Fuzz invariant:** `cli fuzz` generates hundreds of adversarial leads and
-  *actively attempts* an unapproved outbox write on every one; the gate blocks
-  all of them and the run asserts nothing reached a delivery stage
+## Модель безопасности (кратко)
+- ИИ может ссылаться только на `evidence_field_ids`, которые есть у лида;
+  неизвестные ссылки, поля вне схемы, уверенность вне диапазона или не-JSON вывод
+  считаются ошибкой и уводят лида в **ручную проверку**.
+- Лиды с opt-out и prompt-injection не могут быть ни авто-одобрены, ни
+  авто-отклонены моделью для контакта; opt-out — жёсткий reject, его нельзя одобрить.
+- Черновик генерируется **только** из доказательств; недоверенный входящий текст
+  никогда не цитируется. Outbox отвергает всё без зафиксированного человеческого `approve`.
+- Доставка **только локальная** (мок-CRM + JSONL outbox); наружу ничего не отправляется.
+- **Защита от Unicode / zero-width:** safety-паттерны прогоняются по NFKD-нормализованной,
+  очищенной от zero-width копии каждого текстового поля, поэтому ловятся и
+  `𝐢𝐠𝐧𝐨𝐫𝐞 𝐩𝐫𝐞𝐯𝐢𝐨𝐮𝐬` (math bold), и `ｉｇｎｏｒｅ ｐｒｅｖｉｏｕｓ` (fullwidth),
+  и варианты с невидимыми символами внутри слова.
+- **Карантин враждебного текста:** набор injection-паттернов включает маркеры XSS
+  (`<script`, `javascript:`, `on*=…=`) и классические маркеры SQLi
+  (`DROP TABLE`, `UNION SELECT`, `;--`), так что даже ошибочно одобренный лид не
+  протащит это вниз по потоку.
+- **Проверка на adversarial LLM:** `AdversarialMockLLMProvider` намеренно выдаёт
+  семь режимов отказа (не-JSON, лишние поля, уверенность вне диапазона,
+  необоснованные ссылки на доказательства, пустые доказательства, неверный enum,
+  override-optout), и **каждый режим проверен end-to-end** в
+  `tests/test_adversarial_llm.py`: пайплайн не может дойти до `outboxed` без
+  одобрения человеком.
+- **Защищённый от подмены след аудита:** события + решения сворачиваются в
+  цепочку хешей SHA-256 на тенант, голова которой опечатывается вне БД, поэтому
+  любую правку задним числом (одобрение или переход стадии) видно через
+  `cli verify-audit` (`audit_chain.py`, `tests/test_audit_chain.py`).
+- **Инвариант фаззинга:** `cli fuzz` генерирует сотни adversarial-лидов и
+  *активно пытается* несанкционированно записать каждый в outbox; шлюз блокирует
+  все попытки, а прогон утверждает, что ни один лид не дошёл до доставочной стадии
   (`fuzz.py`, `tests/test_fuzz_invariants.py`).
 
-See `docs/THREAT_MODEL.md`, `docs/COMMERCIAL_MEMO.md`, and `CHANGELOG.md`.
+См. `docs/THREAT_MODEL.md`, `docs/COMMERCIAL_MEMO.md` и `CHANGELOG.md`
+(эти документы пока на английском).
 
-## Reproducibility & performance
+## Воспроизводимость и производительность
 
-The demo is deterministic; there is no RNG anywhere in fixture generation,
-normalization, or qualification. Concretely:
+Демо детерминировано; нигде в генерации фикстур, нормализации или квалификации
+нет ГСЧ. Конкретно:
 
-- **Demo** (102 raw records, 2 tenants): runs the full loop in a few seconds;
-  the numbers above are pinned by `tests/test_golden_demo.py`.
-- **Test suite**: **111 tests, ~37 s** on a laptop (Python 3.13.5, pytest 9.1.1).
-- **Synthetic load test** (`scripts/load_test.py`), fresh data dir per run:
-  - `--n 1000` → **5.2 s**, **~192 records / sec** end-to-end
-    (ingest+dedup 2.0 s + qualify 3.2 s), 931 unique leads / 46 dups merged.
-  - `--n 5000` → **29 s**, **~172 records / sec**, 4359 unique leads /
-    270 dups merged.
-  - SQLite is opened in `journal_mode=WAL` + `synchronous=NORMAL`. That single
-    change was measured at **32× faster** than the default rollback journal on
-    this workload (was 4.9 rps → now 192 rps on `--n 1000`) because every
-    ingest/qualify/decision row triggers its own commit.
+- **Демо** (102 исходные записи, 2 тенанта): полный цикл за несколько секунд;
+  числа выше закреплены `tests/test_golden_demo.py`.
+- **Набор тестов**: **111 тестов, ~37 с** на ноутбуке (Python 3.13.5, pytest 9.1.1).
+- **Синтетическая нагрузка** (`scripts/load_test.py`), новый каталог данных на запуск:
+  - `--n 1000` → **5.2 с**, **~192 записи / сек** end-to-end
+    (ingest+dedup 2.0 с + qualify 3.2 с), 931 уникальный лид / 46 дублей объединено.
+  - `--n 5000` → **29 с**, **~172 записи / сек**, 4359 уникальных лидов / 270 дублей.
+  - SQLite открывается в `journal_mode=WAL` + `synchronous=NORMAL`. Одно это
+    изменение дало **ускорение в 32×** против default rollback journal на этой
+    нагрузке (было 4.9 rps → стало 192 rps на `--n 1000`), потому что каждая
+    строка ingest/qualify/decision вызывает собственный commit.
 
-## Known limitations (honest scope)
+## Известные ограничения (честно об объёме)
 
-These are stated deliberately so the reader can weigh the demo against what a
-real production system would need.
+Это перечислено намеренно, чтобы читающий мог взвесить демо относительно того,
+что потребовалось бы в реальном проде.
 
-- **Regex-based guardrails are a floor, not a ceiling.** The injection /
-  opt-out patterns catch the classics and a broad family of obfuscations, but
-  they are English-only and pattern-based. A real deployment would pair this
-  with a dedicated classifier / guardrail model and a much wider multilingual
-  pattern set. This is why ambiguous cases are routed to a human, not trusted.
-- **Dedup on `name + company` is intentionally conservative** and will over-
-  merge homonyms (e.g. two "J. Smith at Acme" from different cities). Email
-  and normalised phone are preferred when present; the fallback hash exists so
-  records with neither are still stable across reruns.
-- **SQLite is single-writer.** With WAL you get many readers plus one writer
-  and this is fine for one CLI/one uvicorn worker. Two competing workers on
-  the same store will serialise on commits; a real deployment would move
-  to Postgres + a queue.
-- **No auth / TLS on the HTTP surface** (see the security notice above). The
-  FastAPI layer exists so the webhook contract can be exercised locally.
-- **Mock LLM.** `MockLLMProvider` is deterministic and offline. The
-  strict-schema + evidence-grounding + safety-forcing wrapper is real; the
-  model behind it is not.
-- **Mock CRM and mock outbox.** Delivery is a JSONL file + a local SQLite
-  "CRM". Nothing leaves the machine, so end-to-end timing is stable but the
-  failure modes are what we chose to inject.
+- **Regex-ограничители — это пол, а не потолок.** Паттерны injection / opt-out
+  ловят классику и широкое семейство обфускаций, но они англоязычные и
+  паттерн-ориентированные. В реальном деплое это дополняют отдельным
+  классификатором / guardrail-моделью и куда более широким мультиязычным набором
+  паттернов. Именно поэтому неоднозначные случаи уходят человеку, а не доверяются.
+- **Дедупликация по `name + company` намеренно консервативна** и будет сверх-сливать
+  однофамильцев (например, двух «J. Smith at Acme» из разных городов). При наличии
+  предпочтены email и нормализованный телефон; fallback-хеш нужен, чтобы записи
+  вообще без них оставались стабильными между прогонами.
+- **SQLite — одно писатель.** С WAL много читателей плюс один писатель, чего
+  хватает на один CLI / один uvicorn-воркер. Два конкурирующих воркера на одном
+  хранилище будут сериализоваться на коммитах; в реальном деплое перешли бы на
+  Postgres + очередь.
+- **Нет auth / TLS на HTTP-слое** (см. предупреждение выше). Слой FastAPI нужен,
+  чтобы локально можно было проверить контракт webhook.
+- **Мок LLM.** `MockLLMProvider` детерминирован и офлайн. Обёртка со строгой
+  схемой + привязкой к доказательствам + форсированием безопасности — настоящая;
+  модель за ней — нет.
+- **Мок-CRM и мок-outbox.** Доставка — это JSONL-файл + локальная SQLite «CRM».
+  Ничего не покидает машину, поэтому end-to-end тайминги стабильны, но режимы
+  отказа — ровно те, что мы сами захотели инъектировать.
 
-## Project layout
+## Структура проекта
 ```
-lead_engine/        application code
-  ├── config.py     settings, tenants, per-tenant paths
-  ├── models.py     stage state machine + strict pydantic schemas
-  ├── db.py         per-tenant, tenant-scoped SQLite repository
-  ├── audit.py      lead-trail composer (raw -> normalize -> AI -> outbox) + DSAR export
-  ├── reporting.py  HTML funnel dashboard across tenants
-  ├── audit_chain.py  tamper-evident SHA-256 chain over events + decisions (seal/verify)
-  ├── calibration.py  rules-vs-AI disagreement matrix + confidence-threshold what-if sweep
-  ├── fuzz.py         deterministic adversarial generator + delivery-invariant proof
-  ├── provenance.py   reproducibility fingerprint (git + fixtures digest + config)
-  ├── run_report.py   one-file "explain this run" HTML (state-machine SVG + all sections)
+lead_engine/        код приложения
+  ├── config.py     настройки, тенанты, пути на тенант
+  ├── models.py     машина состояний стадий + строгие pydantic-схемы
+  ├── db.py         SQLite-репозиторий на тенант, скоуп по tenant_id
+  ├── audit.py      сборщик следа по лиду (raw -> normalize -> AI -> outbox) + выгрузка DSAR
+  ├── reporting.py  HTML-дашборд воронки по нескольким тенантам
+  ├── audit_chain.py  защищённая от подмены цепочка SHA-256 по событиям + решениям (seal/verify)
+  ├── calibration.py  матрица расхождений «правила vs ИИ» + what-if свип порога уверенности
+  ├── fuzz.py         детерминированный adversarial-генератор + доказательство инварианта доставки
+  ├── provenance.py   отпечаток воспроизводимости (git + дайджест фикстур + конфиг)
+  ├── run_report.py   однофайловый HTML «объяснение прогона» (SVG-машина состояний + все секции)
   ├── pipeline/     normalize, dedup, qualify_rules, qualify_ai, draft, orchestrator
-  ├── approval/     human_gate (hard approval choke point)
-  ├── delivery/     crm_mock, outbox (guarded), retry (deep module)
-  ├── metrics/      funnel (counts + SLA timings)
-  ├── sources/      CSV / JSON / webhook readers
-  ├── cli.py        20 sub-commands (ingest/qualify/queue/review/approve/reject/
+  ├── approval/     human_gate (жёсткая точка одобрения)
+  ├── delivery/     crm_mock, outbox (под защитой), retry (глубокий модуль)
+  ├── metrics/      funnel (счётчики + SLA-тайминги)
+  ├── sources/      читатели CSV / JSON / webhook
+  ├── cli.py        20 подкоманд (ingest/qualify/queue/review/approve/reject/
   │                 deliver/reprocess/metrics/audit/explain/report/demo +
   │                 audit-seal/verify-audit/calibrate/fuzz/subject-export/
   │                 provenance/explain-run)
-  └── app.py        FastAPI webhook + queue + metrics + health
+  └── app.py        FastAPI: webhook + queue + metrics + health
 
-fixtures/           generator + committed CSV/JSON/webhook data (102 records)
-                    + adversarial.json (15 malicious cases) + adversarial_generate.py
-tests/              pytest suite (111 tests)
-docs/               THREAT_MODEL.md, COMMERCIAL_MEMO.md
-scripts/            load_test.py (synthetic stress run)
-data/               runtime files (gitignored; regenerated on demand)
+fixtures/           генератор + закоммиченные данные CSV/JSON/webhook (102 записи)
+                    + adversarial.json (15 вредоносных случаев) + adversarial_generate.py
+tests/              набор pytest (111 тестов)
+docs/               THREAT_MODEL.md, COMMERCIAL_MEMO.md (на английском)
+scripts/            load_test.py (синтетический стресс-прогон)
+data/               рантайм-файлы (в gitignore; пересоздаются по требованию)
 ```
 
-## Attribution
-> These lines describe how this repository was produced.
+## Об авторстве
+> Эти строки описывают, как был сделан этот репозиторий.
 
-- **Built personally (design + implementation + review):** overall architecture,
-  tenant isolation approach, the human-approval choke point, the strict AI
-  safety policy, the retry / DLQ / reprocess design, all fixtures, tests, and
-  docs, plus review and verification of every generated file.
-- **AI-assisted:** an AI coding agent (Qoder) drafted most of the boilerplate
-  code and documentation text, which was then reviewed and corrected by hand.
-  Real defects found and fixed during verification: (i) a non-ASCII test
-  symbol, (ii) a delivery/outbox ordering bug surfaced by 5 failing tests,
-  (iii) an unused `_flaky_remaining` dict after the CRM profiles moved to
-  `_call_count`, (iv) a 32× SQLite-commit bottleneck exposed by the load
-  test, fixed via WAL + `synchronous=NORMAL`.
-- **Hours spent: ~6 hours of wall-clock focused effort** across a single
-  session on 2026-09-23, plus ~1.5 hours of the reviewer-driven second pass
-  (this repo's `CHANGELOG.md` "Unreleased" section), plus ~2 hours of a third
-  "beyond the brief" pass (tamper-evident audit chain, rules-vs-AI calibration,
-  adversarial fuzzer, one-file run-explainer, DSAR export; +17 tests → 111
-  total) — approximately:
-  architecture + planning 1.5 h, implementation across pipeline / approval /
-  delivery / metrics 2 h, fixtures + tests 1 h, docs 0.5 h, quality pass +
-  verification + Tier-2/3 fixes 2.5 h, extras pass 2 h. The number is stated as an
-  estimate derived from this session's timeline, not a timesheet.
-- **API / tooling cost: $0** — the engine uses an offline mock LLM, no
-  external AI calls, no paid services. Cost is limited to local development
-  time.
+- **Сделано лично (проектирование + реализация + ревью):** общая архитектура,
+  подход к изоляции тенантов, точка одобрения человеком, строгая AI-safety
+  политика, дизайн retry / DLQ / reprocess, все фикстуры, тесты и документы, а
+  также ревью и проверка каждого сгенерированного файла.
+- **С помощью ИИ:** AI-агент (Qoder) написал большую часть boilerplate-кода и
+  текста документации, после чего всё было проверено и исправлено вручную.
+  Реальные дефекты, найденные и исправленные при проверке: (i) не-ASCII символ в
+  тесте, (ii) баг порядка доставки/outbox, вскрытый 5 падающими тестами,
+  (iii) неиспользуемый словарь `_flaky_remaining` после перехода профилей CRM на
+  `_call_count`, (iv) 32× узкое место на коммитах SQLite, вскрытое нагрузочным
+  тестом и исправленное через WAL + `synchronous=NORMAL`.
+- **Затрачено времени: ~6 часов** сосредоточенной работы в рамках одной сессии
+  (2026-09-23), плюс ~1.5 часа второго прохода по замечаниям ревьюера (раздел
+  `CHANGELOG.md` «Unreleased»), плюс ~2 часа третьего прохода «сверх ТЗ»
+  (защищённая от подмены цепочка аудита, калибровка «правила vs ИИ»,
+  adversarial-фаззер, однофайловое объяснение прогона, выгрузка DSAR;
+  +17 тестов → 111 всего) — примерно: архитектура + планирование 1.5 ч,
+  реализация пайплайна / approval / доставки / метрик 2 ч, фикстуры + тесты 1 ч,
+  документация 0.5 ч, quality-проход + проверка + исправления Tier-2/3 2.5 ч,
+  проход «сверх ТЗ» 2 ч. Числа приведены как оценка по таймлайну сессии, а не табель.
+- **Стоимость API / инструментов: $0** — движок использует офлайн мок LLM, без
+  внешних AI-вызовов и платных сервисов. Расходы ограничены временем локальной
+  разработки.
 
-## License / scope
-Synthetic demo project for an evaluation task. Contains no real customer data,
-credentials, or external integrations.
+## Лицензия / объём
+Синтетический демо-проект для оценочного задания. Не содержит реальных данных
+клиентов, учётных данных или внешних интеграций.
